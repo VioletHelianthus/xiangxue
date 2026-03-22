@@ -1,0 +1,11 @@
+[package]
+name = "xiangxue"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cssparser = "0.37"
+cssparser-color = "0.5"
+html5ever = "0.38"
+markup5ever_rcdom = "0.38"
+taffy = { path = "../taffy", default-features = false, features = ["std", "taffy_tree", "flexbox", "parse"] }
