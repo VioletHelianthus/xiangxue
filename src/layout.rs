@@ -58,8 +58,10 @@ fn to_taffy_style(props: &crate::types::LayoutProps) -> taffy::Style {
         }
     };
 
+    let display = props.display.unwrap_or(taffy::Display::Flex);
+
     taffy::Style {
-        display: props.display.unwrap_or(taffy::Display::Flex),
+        display,
         position,
         flex_direction: match &props.flex_direction {
             Some(Orientation::Horizontal) => taffy::FlexDirection::Row,
@@ -101,14 +103,27 @@ fn to_taffy_style(props: &crate::types::LayoutProps) -> taffy::Style {
             left: opt_px_to_lp(props.padding_left),
         },
         gap: Size {
-            width: props
-                .gap
+            width: props.column_gap.or(props.gap)
                 .map(taffy::LengthPercentage::length)
                 .unwrap_or(taffy::LengthPercentage::ZERO),
-            height: props
-                .gap
+            height: props.row_gap.or(props.gap)
                 .map(taffy::LengthPercentage::length)
                 .unwrap_or(taffy::LengthPercentage::ZERO),
+        },
+        // CSS Grid (container)
+        grid_template_columns: props.grid_template_columns.clone(),
+        grid_template_rows: props.grid_template_rows.clone(),
+        grid_auto_flow: props.grid_auto_flow.unwrap_or(taffy::GridAutoFlow::Row),
+        grid_auto_rows: props.grid_auto_rows.clone(),
+        grid_auto_columns: props.grid_auto_columns.clone(),
+        // CSS Grid (item)
+        grid_column: taffy::Line {
+            start: props.grid_column_start.clone().unwrap_or(taffy::GridPlacement::<String>::Auto),
+            end: props.grid_column_end.clone().unwrap_or(taffy::GridPlacement::<String>::Auto),
+        },
+        grid_row: taffy::Line {
+            start: props.grid_row_start.clone().unwrap_or(taffy::GridPlacement::<String>::Auto),
+            end: props.grid_row_end.clone().unwrap_or(taffy::GridPlacement::<String>::Auto),
         },
         inset: taffy::Rect {
             left: props
@@ -308,5 +323,57 @@ mod tests {
         let child = &tree.children[0];
         assert!((child.layout.resolved_width.unwrap() - 320.0).abs() < 0.1);
         assert!((child.layout.resolved_height.unwrap() - 240.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn grid_two_columns_equal() {
+        let html = r#"<div data-name="root" style="width:400px;height:200px;display:grid;grid-template-columns:1fr 1fr;column-gap:0">
+            <div data-name="a" style="height:50px"></div>
+            <div data-name="b" style="height:50px"></div>
+        </div>"#;
+        let mut tree = parse_html(html);
+        resolve_layout(&mut tree, 400.0, 200.0);
+
+        let a = &tree.children[0];
+        let b = &tree.children[1];
+        assert!((a.layout.resolved_width.unwrap() - 200.0).abs() < 0.1, "a width: {:?}", a.layout.resolved_width);
+        assert!((b.layout.resolved_width.unwrap() - 200.0).abs() < 0.1, "b width: {:?}", b.layout.resolved_width);
+        assert!((a.layout.resolved_x.unwrap()).abs() < 0.1);
+        assert!((b.layout.resolved_x.unwrap() - 200.0).abs() < 0.1, "b x: {:?}", b.layout.resolved_x);
+    }
+
+    #[test]
+    fn grid_fixed_and_fr_columns() {
+        let html = r#"<div data-name="root" style="width:400px;height:200px;display:grid;grid-template-columns:100px 1fr 1fr">
+            <div data-name="a"></div>
+            <div data-name="b"></div>
+            <div data-name="c"></div>
+        </div>"#;
+        let mut tree = parse_html(html);
+        resolve_layout(&mut tree, 400.0, 200.0);
+
+        let a = &tree.children[0];
+        let b = &tree.children[1];
+        let c = &tree.children[2];
+        assert!((a.layout.resolved_width.unwrap() - 100.0).abs() < 0.1);
+        assert!((b.layout.resolved_width.unwrap() - 150.0).abs() < 0.1);
+        assert!((c.layout.resolved_width.unwrap() - 150.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn grid_with_gap() {
+        let html = r#"<div data-name="root" style="width:420px;height:200px;display:grid;grid-template-columns:1fr 1fr;column-gap:20px">
+            <div data-name="a" style="height:50px"></div>
+            <div data-name="b" style="height:50px"></div>
+        </div>"#;
+        let mut tree = parse_html(html);
+        resolve_layout(&mut tree, 420.0, 200.0);
+
+        let a = &tree.children[0];
+        let b = &tree.children[1];
+        // (420 - 20 gap) / 2 = 200 each
+        assert!((a.layout.resolved_width.unwrap() - 200.0).abs() < 0.1);
+        assert!((b.layout.resolved_width.unwrap() - 200.0).abs() < 0.1);
+        assert!((b.layout.resolved_x.unwrap() - 220.0).abs() < 0.1);
     }
 }

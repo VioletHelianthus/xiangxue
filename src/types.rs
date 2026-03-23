@@ -71,6 +71,21 @@ pub struct LayoutProps {
     pub flex_shrink: Option<f32>,
     pub flex_basis: Option<Dimension>,
 
+    // CSS Grid properties (container)
+    pub grid_template_columns: Vec<taffy::GridTemplateComponent<String>>,
+    pub grid_template_rows: Vec<taffy::GridTemplateComponent<String>>,
+    pub grid_auto_flow: Option<taffy::GridAutoFlow>,
+    pub grid_auto_rows: Vec<taffy::TrackSizingFunction>,
+    pub grid_auto_columns: Vec<taffy::TrackSizingFunction>,
+    // CSS Grid properties (item)
+    pub grid_column_start: Option<taffy::GridPlacement<String>>,
+    pub grid_column_end: Option<taffy::GridPlacement<String>>,
+    pub grid_row_start: Option<taffy::GridPlacement<String>>,
+    pub grid_row_end: Option<taffy::GridPlacement<String>>,
+    // Gap overrides for grid
+    pub column_gap: Option<f32>,
+    pub row_gap: Option<f32>,
+
     // Visual properties parsed from CSS
     pub background_image: Option<String>, // url path from background-image: url(...)
     pub scale_x: Option<f32>,

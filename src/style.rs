@@ -4,6 +4,8 @@ use cssparser::{
 };
 use cssparser_color::Color;
 
+use taffy::prelude::{TaffyGridLine, TaffyGridSpan};
+
 use crate::types::{Dimension, LayoutProps, Orientation};
 
 /// Parse all recognized layout properties from an inline style string.
@@ -77,6 +79,18 @@ enum Decl {
     ZIndex(i32),
     Color(u8, u8, u8),
     BackgroundColor(u8, u8, u8, u8),
+    // CSS Grid
+    GridTemplateColumns(Vec<taffy::GridTemplateComponent<String>>),
+    GridTemplateRows(Vec<taffy::GridTemplateComponent<String>>),
+    GridAutoFlow(taffy::GridAutoFlow),
+    GridAutoRows(Vec<taffy::TrackSizingFunction>),
+    GridAutoColumns(Vec<taffy::TrackSizingFunction>),
+    GridColumnStart(taffy::GridPlacement<String>),
+    GridColumnEnd(taffy::GridPlacement<String>),
+    GridRowStart(taffy::GridPlacement<String>),
+    GridRowEnd(taffy::GridPlacement<String>),
+    ColumnGap(f32),
+    RowGap(f32),
 }
 
 fn apply_declaration(props: &mut LayoutProps, decl: Decl) {
@@ -139,6 +153,17 @@ fn apply_declaration(props: &mut LayoutProps, decl: Decl) {
         Decl::ZIndex(v) => props.z_order = Some(v),
         Decl::Color(r, g, b) => props.color = Some((r, g, b)),
         Decl::BackgroundColor(r, g, b, a) => props.background_color = Some((r, g, b, a)),
+        Decl::GridTemplateColumns(v) => props.grid_template_columns = v,
+        Decl::GridTemplateRows(v) => props.grid_template_rows = v,
+        Decl::GridAutoFlow(v) => props.grid_auto_flow = Some(v),
+        Decl::GridAutoRows(v) => props.grid_auto_rows = v,
+        Decl::GridAutoColumns(v) => props.grid_auto_columns = v,
+        Decl::GridColumnStart(v) => props.grid_column_start = Some(v),
+        Decl::GridColumnEnd(v) => props.grid_column_end = Some(v),
+        Decl::GridRowStart(v) => props.grid_row_start = Some(v),
+        Decl::GridRowEnd(v) => props.grid_row_end = Some(v),
+        Decl::ColumnGap(v) => props.column_gap = Some(v),
+        Decl::RowGap(v) => props.row_gap = Some(v),
     }
 }
 
@@ -255,6 +280,20 @@ impl<'i> DeclarationParser<'i> for LayoutDeclParser {
             "z-index" => parse_integer(input).map(Decl::ZIndex),
             "color" => parse_css_color(input),
             "background-color" => parse_css_background_color(input),
+            // CSS Grid
+            "grid-template-columns" => parse_grid_template(input).map(Decl::GridTemplateColumns),
+            "grid-template-rows" => parse_grid_template(input).map(Decl::GridTemplateRows),
+            "grid-auto-flow" => parse_grid_auto_flow(input).map(Decl::GridAutoFlow),
+            "grid-auto-rows" => parse_grid_auto_tracks(input).map(Decl::GridAutoRows),
+            "grid-auto-columns" => parse_grid_auto_tracks(input).map(Decl::GridAutoColumns),
+            "grid-column-start" => parse_grid_placement(input).map(Decl::GridColumnStart),
+            "grid-column-end" => parse_grid_placement(input).map(Decl::GridColumnEnd),
+            "grid-row-start" => parse_grid_placement(input).map(Decl::GridRowStart),
+            "grid-row-end" => parse_grid_placement(input).map(Decl::GridRowEnd),
+            "grid-column" => parse_grid_line_shorthand(input, true),
+            "grid-row" => parse_grid_line_shorthand(input, false),
+            "column-gap" => parse_px_value(input).map(Decl::ColumnGap),
+            "row-gap" => parse_px_value(input).map(Decl::RowGap),
             _ => Err(input.new_custom_error(())),
         }
     }
@@ -638,6 +677,187 @@ fn parse_css_background_color<'i, 't>(
     let color = Color::parse(input).map_err(|_| input.new_custom_error(()))?;
     let (r, g, b, a) = color_to_rgba(&color);
     Ok(Decl::BackgroundColor(r, g, b, a))
+}
+
+// ── CSS Grid parsers ────────────────────────────────────────────────────
+
+use taffy::MinMax;
+
+/// Parse a single track sizing function: `100px`, `1fr`, `auto`, `50%`, `minmax(min, max)`.
+fn parse_track_sizing<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<taffy::TrackSizingFunction, ParseError<'i, ()>> {
+    // Try minmax(...)
+    if let Ok(tsf) = input.try_parse(|input| -> Result<taffy::TrackSizingFunction, ParseError<'i, ()>> {
+        let name = input.expect_function()?.clone();
+        if !name.eq_ignore_ascii_case("minmax") {
+            return Err(input.new_custom_error(()));
+        }
+        input.parse_nested_block(|input| {
+            let min = parse_min_track(input)?;
+            input.expect_comma()?;
+            let max = parse_max_track(input)?;
+            Ok(MinMax { min, max })
+        })
+    }) {
+        return Ok(tsf);
+    }
+
+    // Single value → min=max (or min=auto for fr)
+    let token = input.next()?.clone();
+    match &token {
+        Token::Dimension { value, unit, .. } => {
+            if unit.eq_ignore_ascii_case("px") {
+                let min = taffy::MinTrackSizingFunction::length(*value);
+                let max = taffy::MaxTrackSizingFunction::length(*value);
+                Ok(MinMax { min, max })
+            } else if unit.eq_ignore_ascii_case("fr") {
+                Ok(MinMax { min: taffy::MinTrackSizingFunction::auto(), max: taffy::MaxTrackSizingFunction::fr(*value) })
+            } else {
+                Err(input.new_custom_error(()))
+            }
+        }
+        Token::Percentage { unit_value, .. } => {
+            let min = taffy::MinTrackSizingFunction::percent(*unit_value);
+            let max = taffy::MaxTrackSizingFunction::percent(*unit_value);
+            Ok(MinMax { min, max })
+        }
+        Token::Number { value, .. } if *value == 0.0 => {
+            Ok(MinMax { min: taffy::MinTrackSizingFunction::length(0.0), max: taffy::MaxTrackSizingFunction::length(0.0) })
+        }
+        Token::Ident(ident) => match &**ident {
+            "auto" => Ok(MinMax { min: taffy::MinTrackSizingFunction::auto(), max: taffy::MaxTrackSizingFunction::auto() }),
+            "min-content" => Ok(MinMax { min: taffy::MinTrackSizingFunction::min_content(), max: taffy::MaxTrackSizingFunction::min_content() }),
+            "max-content" => Ok(MinMax { min: taffy::MinTrackSizingFunction::max_content(), max: taffy::MaxTrackSizingFunction::max_content() }),
+            _ => Err(input.new_custom_error(())),
+        },
+        _ => Err(input.new_custom_error(())),
+    }
+}
+
+fn parse_min_track<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<taffy::MinTrackSizingFunction, ParseError<'i, ()>> {
+    let token = input.next()?.clone();
+    match &token {
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(taffy::MinTrackSizingFunction::length(*value)),
+        Token::Percentage { unit_value, .. } => Ok(taffy::MinTrackSizingFunction::percent(*unit_value)),
+        Token::Number { value, .. } if *value == 0.0 => Ok(taffy::MinTrackSizingFunction::length(0.0)),
+        Token::Ident(ident) => match &**ident {
+            "auto" => Ok(taffy::MinTrackSizingFunction::auto()),
+            "min-content" => Ok(taffy::MinTrackSizingFunction::min_content()),
+            "max-content" => Ok(taffy::MinTrackSizingFunction::max_content()),
+            _ => Err(input.new_custom_error(())),
+        },
+        _ => Err(input.new_custom_error(())),
+    }
+}
+
+fn parse_max_track<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<taffy::MaxTrackSizingFunction, ParseError<'i, ()>> {
+    let token = input.next()?.clone();
+    match &token {
+        Token::Dimension { value, unit, .. } => {
+            if unit.eq_ignore_ascii_case("px") {
+                Ok(taffy::MaxTrackSizingFunction::length(*value))
+            } else if unit.eq_ignore_ascii_case("fr") {
+                Ok(taffy::MaxTrackSizingFunction::fr(*value))
+            } else {
+                Err(input.new_custom_error(()))
+            }
+        }
+        Token::Percentage { unit_value, .. } => Ok(taffy::MaxTrackSizingFunction::percent(*unit_value)),
+        Token::Number { value, .. } if *value == 0.0 => Ok(taffy::MaxTrackSizingFunction::length(0.0)),
+        Token::Ident(ident) => match &**ident {
+            "auto" => Ok(taffy::MaxTrackSizingFunction::auto()),
+            "min-content" => Ok(taffy::MaxTrackSizingFunction::min_content()),
+            "max-content" => Ok(taffy::MaxTrackSizingFunction::max_content()),
+            _ => Err(input.new_custom_error(())),
+        },
+        _ => Err(input.new_custom_error(())),
+    }
+}
+
+/// Parse `grid-template-columns` / `grid-template-rows`: space-separated track list.
+fn parse_grid_template<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<Vec<taffy::GridTemplateComponent<String>>, ParseError<'i, ()>> {
+    let mut tracks = Vec::new();
+    tracks.push(taffy::GridTemplateComponent::<String>::Single(parse_track_sizing(input)?));
+    while !input.is_exhausted() {
+        match input.try_parse(parse_track_sizing) {
+            Ok(t) => tracks.push(taffy::GridTemplateComponent::<String>::Single(t)),
+            Err(_) => break,
+        }
+    }
+    Ok(tracks)
+}
+
+/// Parse `grid-auto-rows` / `grid-auto-columns`: space-separated track sizing functions.
+fn parse_grid_auto_tracks<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<Vec<taffy::TrackSizingFunction>, ParseError<'i, ()>> {
+    let mut tracks = Vec::new();
+    tracks.push(parse_track_sizing(input)?);
+    while !input.is_exhausted() {
+        match input.try_parse(parse_track_sizing) {
+            Ok(t) => tracks.push(t),
+            Err(_) => break,
+        }
+    }
+    Ok(tracks)
+}
+
+/// Parse `grid-auto-flow`: row | column | row dense | column dense
+fn parse_grid_auto_flow<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<taffy::GridAutoFlow, ParseError<'i, ()>> {
+    let ident = input.expect_ident()?.clone();
+    let dense = input.try_parse(|i| -> Result<bool, ParseError<'i, ()>> {
+        let id = i.expect_ident()?.clone();
+        if id.eq_ignore_ascii_case("dense") { Ok(true) } else { Err(i.new_custom_error(())) }
+    }).unwrap_or(false);
+    match (&*ident, dense) {
+        ("row", false) => Ok(taffy::GridAutoFlow::Row),
+        ("row", true) => Ok(taffy::GridAutoFlow::RowDense),
+        ("column", false) => Ok(taffy::GridAutoFlow::Column),
+        ("column", true) => Ok(taffy::GridAutoFlow::ColumnDense),
+        _ => Err(input.new_custom_error(())),
+    }
+}
+
+/// Parse grid placement: `auto`, line number `2`, `span 3`
+fn parse_grid_placement<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<taffy::GridPlacement<String>, ParseError<'i, ()>> {
+    let token = input.next()?.clone();
+    match &token {
+        Token::Number { int_value: Some(n), .. } => Ok(taffy::GridPlacement::<String>::from_line_index(*n as i16)),
+        Token::Ident(ident) => match &**ident {
+            "auto" => Ok(taffy::GridPlacement::Auto),
+            "span" => {
+                let n = input.expect_integer()? as u16;
+                Ok(taffy::GridPlacement::<String>::from_span(n))
+            }
+            _ => Err(input.new_custom_error(())),
+        },
+        _ => Err(input.new_custom_error(())),
+    }
+}
+
+/// Parse `grid-column` / `grid-row` shorthand: `start / end` or single value.
+/// Note: only sets start from shorthand. Use explicit start/end for both.
+fn parse_grid_line_shorthand<'i, 't>(
+    input: &mut Parser<'i, 't>,
+    is_column: bool,
+) -> Result<Decl, ParseError<'i, ()>> {
+    let start = parse_grid_placement(input)?;
+    if is_column {
+        Ok(Decl::GridColumnStart(start))
+    } else {
+        Ok(Decl::GridRowStart(start))
+    }
 }
 
 #[cfg(test)]
