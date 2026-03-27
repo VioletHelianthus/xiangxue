@@ -45,6 +45,10 @@ enum TransformFn {
 enum Decl {
     Width(Dimension),
     Height(Dimension),
+    MinWidth(Dimension),
+    MinHeight(Dimension),
+    MaxWidth(Dimension),
+    MaxHeight(Dimension),
     Left(Dimension),
     Top(Dimension),
     Right(Dimension),
@@ -91,12 +95,23 @@ enum Decl {
     GridRowEnd(taffy::GridPlacement<String>),
     ColumnGap(f32),
     RowGap(f32),
+    // Typography
+    FontSize(f32),
+    FontWeight(bool), // bold or not
+    TextAlign(crate::types::TextAlign),
+    LineHeight(f32),
+    // Flex shorthand
+    Flex(f32, f32, Dimension), // grow, shrink, basis
 }
 
 fn apply_declaration(props: &mut LayoutProps, decl: Decl) {
     match decl {
         Decl::Width(d) => props.width = Some(d),
         Decl::Height(d) => props.height = Some(d),
+        Decl::MinWidth(d) => props.min_width = Some(d),
+        Decl::MinHeight(d) => props.min_height = Some(d),
+        Decl::MaxWidth(d) => props.max_width = Some(d),
+        Decl::MaxHeight(d) => props.max_height = Some(d),
         Decl::Left(d) => props.left = Some(d),
         Decl::Top(d) => props.top = Some(d),
         Decl::MarginTop(v) => props.margin_top = Some(v),
@@ -153,6 +168,15 @@ fn apply_declaration(props: &mut LayoutProps, decl: Decl) {
         Decl::ZIndex(v) => props.z_order = Some(v),
         Decl::Color(r, g, b) => props.color = Some((r, g, b)),
         Decl::BackgroundColor(r, g, b, a) => props.background_color = Some((r, g, b, a)),
+        Decl::FontSize(v) => props.font_size = Some(v),
+        Decl::FontWeight(bold) => props.font_bold = bold,
+        Decl::TextAlign(a) => props.text_align = Some(a),
+        Decl::LineHeight(v) => props.line_height = Some(v),
+        Decl::Flex(grow, shrink, basis) => {
+            props.flex_grow = Some(grow);
+            props.flex_shrink = Some(shrink);
+            props.flex_basis = Some(basis);
+        }
         Decl::GridTemplateColumns(v) => props.grid_template_columns = v,
         Decl::GridTemplateRows(v) => props.grid_template_rows = v,
         Decl::GridAutoFlow(v) => props.grid_auto_flow = Some(v),
@@ -244,8 +268,12 @@ impl<'i> DeclarationParser<'i> for LayoutDeclParser {
         _start: &ParserState,
     ) -> Result<Decl, ParseError<'i, ()>> {
         match &*name {
-            "width" => parse_dimension(input).map(Decl::Width),
-            "height" => parse_dimension(input).map(Decl::Height),
+            "width" => parse_dimension_or_calc(input).map(Decl::Width),
+            "height" => parse_dimension_or_calc(input).map(Decl::Height),
+            "min-width" => parse_dimension_or_calc(input).map(Decl::MinWidth),
+            "min-height" => parse_dimension_or_calc(input).map(Decl::MinHeight),
+            "max-width" => parse_dimension_or_calc(input).map(Decl::MaxWidth),
+            "max-height" => parse_dimension_or_calc(input).map(Decl::MaxHeight),
             "left" => parse_dimension(input).map(Decl::Left),
             "top" => parse_dimension(input).map(Decl::Top),
             "margin" => parse_px_shorthand(input).map(Decl::MarginShorthand),
@@ -294,6 +322,13 @@ impl<'i> DeclarationParser<'i> for LayoutDeclParser {
             "grid-row" => parse_grid_line_shorthand(input, false),
             "column-gap" => parse_px_value(input).map(Decl::ColumnGap),
             "row-gap" => parse_px_value(input).map(Decl::RowGap),
+            // Typography
+            "font-size" => parse_px_value(input).map(Decl::FontSize),
+            "font-weight" => parse_font_weight(input),
+            "text-align" => parse_text_align(input),
+            "line-height" => parse_line_height(input),
+            // Flex shorthand: flex: <grow> [<shrink>] [<basis>]
+            "flex" => parse_flex_shorthand(input),
             _ => Err(input.new_custom_error(())),
         }
     }
@@ -399,6 +434,150 @@ fn parse_number<'i, 't>(input: &mut Parser<'i, 't>) -> Result<f32, ParseError<'i
         Token::Number { value, .. } => Ok(*value),
         _ => Err(input.new_custom_error(())),
     }
+}
+
+/// Parse a dimension value, also accepting `calc(100% - Npx)` as a best-effort approximation.
+/// Taffy does not support calc() natively, so we evaluate simple `<percent> - <px>` or
+/// `<percent> + <px>` expressions at parse time.
+fn parse_dimension_or_calc<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<Dimension, ParseError<'i, ()>> {
+    // Try normal dimension first
+    let state = input.state();
+    if let Ok(d) = parse_dimension(input) {
+        return Ok(d);
+    }
+    input.reset(&state);
+
+    // Try calc(...)
+    let func = input.expect_function()?.clone();
+    if !func.eq_ignore_ascii_case("calc") {
+        return Err(input.new_custom_error(()));
+    }
+    input.parse_nested_block(|input| {
+        // Parse: <percent> +/- <px>  or  <px> +/- <percent>
+        let first = input.next()?.clone();
+        let (mut pct, mut px) = match &first {
+            Token::Percentage { unit_value, .. } => (*unit_value * 100.0, 0.0f32),
+            Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => {
+                (0.0f32, *value)
+            }
+            _ => return Err(input.new_custom_error(())),
+        };
+
+        // Optional operator + second value
+        while !input.is_exhausted() {
+            let op = input.next()?.clone();
+            let sign = match &op {
+                Token::Delim('+') => 1.0f32,
+                Token::Delim('-') => -1.0f32,
+                _ => return Err(input.new_custom_error(())),
+            };
+            let second = input.next()?.clone();
+            match &second {
+                Token::Percentage { unit_value, .. } => pct += sign * unit_value * 100.0,
+                Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => {
+                    px += sign * value;
+                }
+                Token::Number { value, .. } if *value == 0.0 => {}
+                _ => return Err(input.new_custom_error(())),
+            }
+        }
+
+        // Approximate: if there's both percent and px, use percent only
+        // (Taffy doesn't support calc, so this is a rough heuristic)
+        if pct != 0.0 {
+            Ok(Dimension::Percent(pct))
+        } else {
+            Ok(Dimension::Px(px))
+        }
+    })
+}
+
+/// Parse font-weight: bold | normal | 700 | 400 etc.
+fn parse_font_weight<'i, 't>(input: &mut Parser<'i, 't>) -> Result<Decl, ParseError<'i, ()>> {
+    let token = input.next()?.clone();
+    match &token {
+        Token::Ident(v) => match &**v {
+            "bold" => Ok(Decl::FontWeight(true)),
+            "normal" => Ok(Decl::FontWeight(false)),
+            _ => Err(input.new_custom_error(())),
+        },
+        Token::Number { int_value, .. } => Ok(Decl::FontWeight(int_value.unwrap_or(400) >= 700)),
+        _ => Err(input.new_custom_error(())),
+    }
+}
+
+/// Parse text-align: left | center | right
+fn parse_text_align<'i, 't>(input: &mut Parser<'i, 't>) -> Result<Decl, ParseError<'i, ()>> {
+    let ident = input.expect_ident()?.clone();
+    match &*ident {
+        "left" | "start" => Ok(Decl::TextAlign(crate::types::TextAlign::Left)),
+        "center" => Ok(Decl::TextAlign(crate::types::TextAlign::Center)),
+        "right" | "end" => Ok(Decl::TextAlign(crate::types::TextAlign::Right)),
+        _ => Err(input.new_custom_error(())),
+    }
+}
+
+/// Parse line-height: <number> | <px>
+fn parse_line_height<'i, 't>(input: &mut Parser<'i, 't>) -> Result<Decl, ParseError<'i, ()>> {
+    let token = input.next()?.clone();
+    match &token {
+        Token::Number { value, .. } => Ok(Decl::LineHeight(*value)),
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => {
+            Ok(Decl::LineHeight(*value))
+        }
+        _ => Err(input.new_custom_error(())),
+    }
+}
+
+/// Parse flex shorthand: flex: <grow> [<shrink>] [<basis>]
+/// Common patterns: flex:1, flex:0 0 auto, flex:1 1 0
+fn parse_flex_shorthand<'i, 't>(input: &mut Parser<'i, 't>) -> Result<Decl, ParseError<'i, ()>> {
+    let first = input.next()?.clone();
+    let grow = match &first {
+        Token::Number { value, .. } => *value,
+        Token::Ident(v) if &**v == "none" => return Ok(Decl::Flex(0.0, 0.0, Dimension::Px(0.0))),
+        Token::Ident(v) if &**v == "auto" => {
+            return Ok(Decl::Flex(1.0, 1.0, Dimension::Px(0.0)));
+        }
+        _ => return Err(input.new_custom_error(())),
+    };
+
+    // Optional shrink
+    let shrink = if !input.is_exhausted() {
+        let state = input.state();
+        match parse_number(input) {
+            Ok(v) => v,
+            Err(_) => {
+                input.reset(&state);
+                1.0
+            }
+        }
+    } else {
+        1.0
+    };
+
+    // Optional basis
+    let basis = if !input.is_exhausted() {
+        let state = input.state();
+        match parse_dimension(input) {
+            Ok(d) => d,
+            Err(_) => {
+                input.reset(&state);
+                // Try "auto" or "0"
+                let t = input.next()?.clone();
+                match &t {
+                    Token::Ident(v) if &**v == "auto" => Dimension::Px(0.0),
+                    _ => Dimension::Px(0.0),
+                }
+            }
+        }
+    } else {
+        Dimension::Px(0.0)
+    };
+
+    Ok(Decl::Flex(grow, shrink, basis))
 }
 
 /// Parse a CSS keyword value using Taffy's FromStr implementation.

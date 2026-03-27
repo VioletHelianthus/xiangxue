@@ -90,6 +90,30 @@ fn to_taffy_style(props: &crate::types::LayoutProps) -> taffy::Style {
                 .map(dim_to_taffy)
                 .unwrap_or(taffy::Dimension::AUTO),
         },
+        min_size: Size {
+            width: props
+                .min_width
+                .as_ref()
+                .map(dim_to_taffy)
+                .unwrap_or(taffy::Dimension::AUTO),
+            height: props
+                .min_height
+                .as_ref()
+                .map(dim_to_taffy)
+                .unwrap_or(taffy::Dimension::AUTO),
+        },
+        max_size: Size {
+            width: props
+                .max_width
+                .as_ref()
+                .map(dim_to_taffy)
+                .unwrap_or(taffy::Dimension::AUTO),
+            height: props
+                .max_height
+                .as_ref()
+                .map(dim_to_taffy)
+                .unwrap_or(taffy::Dimension::AUTO),
+        },
         margin: taffy::Rect {
             top: opt_px_to_lpa(props.margin_top),
             right: opt_px_to_lpa(props.margin_right),

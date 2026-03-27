@@ -14,6 +14,14 @@ pub enum Dimension {
     Percent(f32), // 0-100, CSS convention
 }
 
+/// Text alignment for typography.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAlign {
+    Left,
+    Center,
+    Right,
+}
+
 /// The kind of UI widget a node represents.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WidgetKind {
@@ -42,6 +50,10 @@ pub struct CssProperties {
 pub struct LayoutProps {
     pub width: Option<Dimension>,
     pub height: Option<Dimension>,
+    pub min_width: Option<Dimension>,
+    pub min_height: Option<Dimension>,
+    pub max_width: Option<Dimension>,
+    pub max_height: Option<Dimension>,
     pub left: Option<Dimension>,
     pub top: Option<Dimension>,
     pub right: Option<Dimension>,
@@ -57,8 +69,16 @@ pub struct LayoutProps {
     pub gap: Option<f32>,           // px only
     pub anchor_x: Option<f32>,      // 0-1, CSS space (0=left, 1=right)
     pub anchor_y: Option<f32>,      // 0-1, CSS space (0=top, 1=bottom)
+    pub pivot_x: Option<f32>,       // 0-1, engine space (mhprefab: 0=left, 1=right)
+    pub pivot_y: Option<f32>,       // 0-1, engine space (mhprefab: 0=bottom, 1=top)
     pub overflow_scroll: bool,
     pub flex_direction: Option<Orientation>,
+
+    // Typography (parsed from CSS, used by backend)
+    pub font_size: Option<f32>,
+    pub font_bold: bool,
+    pub text_align: Option<TextAlign>,
+    pub line_height: Option<f32>,
 
     // Taffy layout properties (parsed via Taffy's FromStr)
     pub display: Option<taffy::Display>,

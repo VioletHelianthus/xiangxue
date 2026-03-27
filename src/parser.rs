@@ -179,12 +179,56 @@ fn collect_text(handle: &Handle) -> String {
 /// `is_container` determines whether bare text nodes become Text UiNodes.
 fn convert_children(handle: &Handle, is_container: bool) -> Vec<UiNode> {
     let mut children = Vec::new();
+    collect_children_flat(handle, is_container, &mut children);
+    children
+}
+
+/// Recursively collect child nodes, handling `data-x-internal` nodes.
+/// Internal wrapper nodes (with element children that have data-widget) are
+/// flattened — only their data-widget children are promoted to parent level.
+/// Internal leaf nodes (img, span with only text) are dropped entirely.
+fn collect_children_flat(handle: &Handle, is_container: bool, out: &mut Vec<UiNode>) {
     for child in handle.children.borrow().iter() {
+        if is_internal_node(child) {
+            // Check if this internal node contains data-widget children (wrapper)
+            // vs only text/img content (leaf preview element)
+            if has_widget_descendants(child) {
+                // Wrapper: flatten its children into parent
+                collect_children_flat(child, is_container, out);
+            }
+            // else: leaf internal node (img, span with text) — drop entirely
+            continue;
+        }
         if let Some(node) = convert_node(child, is_container) {
-            children.push(node);
+            out.push(node);
         }
     }
-    children
+}
+
+/// Check if a DOM node is marked as Vue-internal (data-x-internal attribute).
+fn is_internal_node(handle: &Handle) -> bool {
+    if let NodeData::Element { attrs, .. } = &handle.data {
+        let attrs = attrs.borrow();
+        get_attr(&attrs, "data-x-internal").is_some()
+    } else {
+        false
+    }
+}
+
+/// Check if any descendant element has a data-widget attribute.
+fn has_widget_descendants(handle: &Handle) -> bool {
+    for child in handle.children.borrow().iter() {
+        if let NodeData::Element { attrs, .. } = &child.data {
+            let attrs = attrs.borrow();
+            if get_attr(&attrs, "data-widget").is_some() {
+                return true;
+            }
+        }
+        if has_widget_descendants(child) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Parse a `data-anchor` attribute value "x,y" into (f32, f32).
@@ -212,6 +256,7 @@ fn convert_node(handle: &Handle, parent_is_container: bool) -> Option<UiNode> {
             }
 
             let attrs_borrowed = attrs.borrow();
+
             let style = get_attr(&attrs_borrowed, "style").unwrap_or_default();
             let has_data_widget = get_attr(&attrs_borrowed, "data-widget").is_some();
             let widget = if let Some(dw) = get_attr(&attrs_borrowed, "data-widget") {
@@ -229,6 +274,14 @@ fn convert_node(handle: &Handle, parent_is_container: bool) -> Option<UiNode> {
                 if let Some((ax, ay)) = parse_data_anchor(&anchor_str) {
                     layout.anchor_x = Some(ax);
                     layout.anchor_y = Some(ay);
+                }
+            }
+
+            // data-pivot preserves engine pivot for round-trip fidelity.
+            if let Some(pivot_str) = get_attr(&attrs_borrowed, "data-pivot") {
+                if let Some((px, py)) = parse_data_anchor(&pivot_str) {
+                    layout.pivot_x = Some(px);
+                    layout.pivot_y = Some(py);
                 }
             }
 
