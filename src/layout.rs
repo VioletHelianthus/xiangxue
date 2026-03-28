@@ -65,7 +65,13 @@ fn to_taffy_style(props: &crate::types::LayoutProps) -> taffy::Style {
         position,
         flex_direction: match &props.flex_direction {
             Some(Orientation::Horizontal) => taffy::FlexDirection::Row,
-            Some(Orientation::Vertical) | None => taffy::FlexDirection::Column,
+            Some(Orientation::Vertical) => taffy::FlexDirection::Column,
+            // CSS default: display:flex → row, block flow → column
+            None => if display == taffy::Display::Flex && props.display.is_some() {
+                taffy::FlexDirection::Row
+            } else {
+                taffy::FlexDirection::Column
+            },
         },
         flex_wrap: props.flex_wrap.unwrap_or(taffy::FlexWrap::NoWrap),
         justify_content: props.justify_content,
