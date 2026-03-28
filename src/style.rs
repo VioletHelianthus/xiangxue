@@ -968,18 +968,63 @@ fn parse_max_track<'i, 't>(
 }
 
 /// Parse `grid-template-columns` / `grid-template-rows`: space-separated track list.
+/// Supports `repeat(N, track)` syntax.
 fn parse_grid_template<'i, 't>(
     input: &mut Parser<'i, 't>,
 ) -> Result<Vec<taffy::GridTemplateComponent<String>>, ParseError<'i, ()>> {
     let mut tracks = Vec::new();
-    tracks.push(taffy::GridTemplateComponent::<String>::Single(parse_track_sizing(input)?));
+
+    // Try first token (may be repeat or a single track)
+    match try_parse_repeat_or_track(input) {
+        Ok(components) => tracks.extend(components),
+        Err(_) => return Err(input.new_custom_error(())),
+    }
+
     while !input.is_exhausted() {
-        match input.try_parse(parse_track_sizing) {
-            Ok(t) => tracks.push(taffy::GridTemplateComponent::<String>::Single(t)),
+        match input.try_parse(try_parse_repeat_or_track) {
+            Ok(components) => tracks.extend(components),
             Err(_) => break,
         }
     }
     Ok(tracks)
+}
+
+/// Try to parse `repeat(N, track ...)` or a single track sizing function.
+fn try_parse_repeat_or_track<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<Vec<taffy::GridTemplateComponent<String>>, ParseError<'i, ()>> {
+    // Try repeat(N, track...)
+    if let Ok(components) = input.try_parse(|input| -> Result<Vec<taffy::GridTemplateComponent<String>>, ParseError<'i, ()>> {
+        let name = input.expect_function()?.clone();
+        if !name.eq_ignore_ascii_case("repeat") {
+            return Err(input.new_custom_error(()));
+        }
+        input.parse_nested_block(|input| {
+            let count = input.expect_integer()? as u16;
+            input.expect_comma()?;
+            let mut repeat_tracks = Vec::new();
+            repeat_tracks.push(parse_track_sizing(input)?);
+            while !input.is_exhausted() {
+                match input.try_parse(parse_track_sizing) {
+                    Ok(t) => repeat_tracks.push(t),
+                    Err(_) => break,
+                }
+            }
+            Ok(vec![taffy::GridTemplateComponent::Repeat(
+                taffy::GridTemplateRepetition {
+                    count: taffy::RepetitionCount::from(count),
+                    tracks: repeat_tracks,
+                    line_names: Vec::new(),
+                },
+            )])
+        })
+    }) {
+        return Ok(components);
+    }
+
+    // Single track
+    let t = parse_track_sizing(input)?;
+    Ok(vec![taffy::GridTemplateComponent::<String>::Single(t)])
 }
 
 /// Parse `grid-auto-rows` / `grid-auto-columns`: space-separated track sizing functions.
