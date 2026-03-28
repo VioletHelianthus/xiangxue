@@ -71,6 +71,7 @@ fn to_taffy_style(props: &crate::types::LayoutProps) -> taffy::Style {
         justify_content: props.justify_content,
         align_items: props.align_items,
         align_self: props.align_self,
+        justify_self: props.justify_self,
         flex_grow: props.flex_grow.unwrap_or(0.0),
         flex_shrink: props.flex_shrink.unwrap_or(1.0),
         flex_basis: props

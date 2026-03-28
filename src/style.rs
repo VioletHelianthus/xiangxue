@@ -72,6 +72,7 @@ enum Decl {
     JustifyContent(taffy::JustifyContent),
     AlignItems(taffy::AlignItems),
     AlignSelf(taffy::AlignSelf),
+    JustifySelf(taffy::JustifySelf),
     FlexWrap(taffy::FlexWrap),
     FlexGrow(f32),
     FlexShrink(f32),
@@ -93,6 +94,7 @@ enum Decl {
     GridColumnEnd(taffy::GridPlacement<String>),
     GridRowStart(taffy::GridPlacement<String>),
     GridRowEnd(taffy::GridPlacement<String>),
+    GridArea(taffy::GridPlacement<String>, taffy::GridPlacement<String>),
     ColumnGap(f32),
     RowGap(f32),
     // Typography
@@ -142,6 +144,7 @@ fn apply_declaration(props: &mut LayoutProps, decl: Decl) {
         Decl::JustifyContent(jc) => props.justify_content = Some(jc),
         Decl::AlignItems(ai) => props.align_items = Some(ai),
         Decl::AlignSelf(a) => props.align_self = Some(a),
+        Decl::JustifySelf(a) => props.justify_self = Some(a),
         Decl::FlexWrap(fw) => props.flex_wrap = Some(fw),
         Decl::FlexGrow(v) => props.flex_grow = Some(v),
         Decl::FlexShrink(v) => props.flex_shrink = Some(v),
@@ -186,6 +189,10 @@ fn apply_declaration(props: &mut LayoutProps, decl: Decl) {
         Decl::GridColumnEnd(v) => props.grid_column_end = Some(v),
         Decl::GridRowStart(v) => props.grid_row_start = Some(v),
         Decl::GridRowEnd(v) => props.grid_row_end = Some(v),
+        Decl::GridArea(row, col) => {
+            props.grid_row_start = Some(row);
+            props.grid_column_start = Some(col);
+        }
         Decl::ColumnGap(v) => props.column_gap = Some(v),
         Decl::RowGap(v) => props.row_gap = Some(v),
     }
@@ -297,6 +304,7 @@ impl<'i> DeclarationParser<'i> for LayoutDeclParser {
             "justify-content" => parse_taffy_keyword::<taffy::JustifyContent>(input).map(Decl::JustifyContent),
             "align-items" => parse_taffy_keyword::<taffy::AlignItems>(input).map(Decl::AlignItems),
             "align-self" => parse_taffy_keyword::<taffy::AlignSelf>(input).map(Decl::AlignSelf),
+            "justify-self" => parse_taffy_keyword::<taffy::JustifySelf>(input).map(Decl::JustifySelf),
             "flex-wrap" => parse_taffy_keyword::<taffy::FlexWrap>(input).map(Decl::FlexWrap),
             "flex-grow" => parse_number(input).map(Decl::FlexGrow),
             "flex-shrink" => parse_number(input).map(Decl::FlexShrink),
@@ -320,6 +328,7 @@ impl<'i> DeclarationParser<'i> for LayoutDeclParser {
             "grid-row-end" => parse_grid_placement(input).map(Decl::GridRowEnd),
             "grid-column" => parse_grid_line_shorthand(input, true),
             "grid-row" => parse_grid_line_shorthand(input, false),
+            "grid-area" => parse_grid_area(input),
             "column-gap" => parse_px_value(input).map(Decl::ColumnGap),
             "row-gap" => parse_px_value(input).map(Decl::RowGap),
             // Typography
@@ -1037,6 +1046,23 @@ fn parse_grid_line_shorthand<'i, 't>(
     } else {
         Ok(Decl::GridRowStart(start))
     }
+}
+
+/// Parse `grid-area: row-start / col-start [ / row-end / col-end ]`.
+/// Common usage: `grid-area: 1/1` → place in row 1, column 1 (overlapping).
+fn parse_grid_area<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<Decl, ParseError<'i, ()>> {
+    let row_start = parse_grid_placement(input)?;
+    // Return just row-start if no slash follows
+    if input.try_parse(|i| i.expect_delim('/')).is_err() {
+        return Ok(Decl::GridRowStart(row_start));
+    }
+    let col_start = parse_grid_placement(input)?;
+    // We use a multi-decl approach — return a compound value.
+    // For simplicity, pack into GridRowStart + GridColumnStart.
+    // We'll return GridArea as a special variant that sets both.
+    Ok(Decl::GridArea(row_start, col_start))
 }
 
 #[cfg(test)]

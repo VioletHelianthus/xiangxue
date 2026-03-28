@@ -184,17 +184,19 @@ fn convert_children(handle: &Handle, is_container: bool) -> Vec<UiNode> {
 }
 
 /// Recursively collect child nodes, handling `data-x-internal` nodes.
-/// Internal wrapper nodes (with element children that have data-widget) are
-/// flattened — only their data-widget children are promoted to parent level.
+/// Internal wrapper nodes (with widget descendants) are kept as Layout nodes
+/// so Taffy can resolve their CSS layout (e.g. grid context). The backend
+/// skips emitting actors for them but uses their resolved layout for children.
 /// Internal leaf nodes (img, span with only text) are dropped entirely.
 fn collect_children_flat(handle: &Handle, is_container: bool, out: &mut Vec<UiNode>) {
     for child in handle.children.borrow().iter() {
         if is_internal_node(child) {
-            // Check if this internal node contains data-widget children (wrapper)
-            // vs only text/img content (leaf preview element)
             if has_widget_descendants(child) {
-                // Wrapper: flatten its children into parent
-                collect_children_flat(child, is_container, out);
+                // Keep as a regular node so Taffy resolves its layout (grid, flex, etc.).
+                // The data-x-internal attr is preserved so the backend can skip it.
+                if let Some(node) = convert_node(child, true) {
+                    out.push(node);
+                }
             }
             // else: leaf internal node (img, span with text) — drop entirely
             continue;

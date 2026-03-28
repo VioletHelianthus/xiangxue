@@ -86,6 +86,7 @@ pub struct LayoutProps {
     pub justify_content: Option<taffy::JustifyContent>,
     pub align_items: Option<taffy::AlignItems>,
     pub align_self: Option<taffy::AlignSelf>,
+    pub justify_self: Option<taffy::JustifySelf>,
     pub flex_wrap: Option<taffy::FlexWrap>,
     pub flex_grow: Option<f32>,
     pub flex_shrink: Option<f32>,
