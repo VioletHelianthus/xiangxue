@@ -97,8 +97,9 @@ fn build_taffy_node(taffy: &mut TaffyTree<TextMeasureContext>, node: &UiNode) ->
 }
 
 /// Extract text measurement context from a UiNode if it's a text leaf.
+/// Works for Text nodes and any leaf widget with a "text" attribute (e.g., Unknown("MVRichLabel")).
 fn text_measure_context(node: &UiNode) -> Option<TextMeasureContext> {
-    if !matches!(node.widget, WidgetKind::Text) {
+    if !node.children.is_empty() {
         return None;
     }
     let text = node

@@ -60,7 +60,11 @@ where
     // Create font registry if configured
     let mut font_registry = config.font_dir.map(|dir| {
         eprintln!("  font dir: {}", dir);
-        FontRegistry::new(&dir, &config.font_default)
+        let mut reg = FontRegistry::new(&dir, &config.font_default);
+        for (name, filename) in &config.font_aliases {
+            reg.add_alias(name, filename);
+        }
+        reg
     });
 
     // No inputs: read from stdin (single file mode)
@@ -159,6 +163,7 @@ struct CliConfig {
     design_height: f32,
     font_dir: Option<String>,
     font_default: String,
+    font_aliases: Vec<(String, String)>,
 }
 
 /// Load configuration from converter.toml (search upward from cwd).
@@ -169,6 +174,7 @@ fn load_config() -> CliConfig {
         design_height: 960.0,
         font_dir: None,
         font_default: String::new(),
+        font_aliases: Vec::new(),
     };
 
     let mut dir = std::env::current_dir().ok();
@@ -191,6 +197,7 @@ fn load_config() -> CliConfig {
                     design_height: h,
                     font_dir: None,
                     font_default: String::new(),
+                    font_aliases: Vec::new(),
                 };
             }
         }
@@ -214,16 +221,19 @@ fn parse_toml_config(content: &str) -> Option<CliConfig> {
     struct FontCfg {
         dir: Option<String>,
         default: Option<String>,
+        alias: Option<std::collections::HashMap<String, String>>,
     }
 
     let root: Root = toml::from_str(content).ok()?;
     let design = root.design?;
-    let font = root.font.unwrap_or(FontCfg { dir: None, default: None });
+    let font = root.font.unwrap_or(FontCfg { dir: None, default: None, alias: None });
+    let aliases: Vec<(String, String)> = font.alias.unwrap_or_default().into_iter().collect();
     Some(CliConfig {
         design_width: design.width.unwrap_or(640.0),
         design_height: design.height.unwrap_or(960.0),
         font_dir: font.dir,
         font_default: font.default.unwrap_or_default(),
+        font_aliases: aliases,
     })
 }
 

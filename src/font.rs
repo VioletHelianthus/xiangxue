@@ -5,10 +5,12 @@ use std::path::{Path, PathBuf};
 /// Registry that loads fonts from a directory by name.
 ///
 /// Convention: font name "华康圆体" → `{dir}/华康圆体.ttf` (or .otf).
+/// Supports aliases: "华康圆体" → "hkyt" → `{dir}/hkyt.ttf`.
 /// Fonts are loaded lazily on first use and cached.
 pub struct FontRegistry {
     dir: PathBuf,
     default_name: String,
+    aliases: HashMap<String, String>,
     cache: HashMap<String, Option<Font>>,
 }
 
@@ -17,8 +19,14 @@ impl FontRegistry {
         Self {
             dir: dir.into(),
             default_name: default_name.into(),
+            aliases: HashMap::new(),
             cache: HashMap::new(),
         }
+    }
+
+    /// Add an alias mapping: font name → ttf filename (without extension).
+    pub fn add_alias(&mut self, name: impl Into<String>, filename: impl Into<String>) {
+        self.aliases.insert(name.into(), filename.into());
     }
 
     /// Measure text using the named font at the given size.
@@ -38,10 +46,15 @@ impl FontRegistry {
         fallback_measure(text, font_size)
     }
 
-    /// Load a font by name, trying .ttf then .otf. Caches the result.
+    /// Load a font by name, trying alias then direct name. Caches the result.
     fn load_font(&mut self, name: &str) -> Option<&Font> {
         if !self.cache.contains_key(name) {
-            let font = try_load_font(&self.dir, name);
+            let font = if let Some(alias) = self.aliases.get(name) {
+                try_load_font(&self.dir, alias)
+            } else {
+                None
+            }
+            .or_else(|| try_load_font(&self.dir, name));
             self.cache.insert(name.to_string(), font);
         }
         self.cache.get(name).and_then(|f| f.as_ref())
