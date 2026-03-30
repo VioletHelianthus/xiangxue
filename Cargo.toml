@@ -9,3 +9,6 @@ cssparser-color = "0.5"
 html5ever = "0.38"
 markup5ever_rcdom = "0.38"
 taffy = { git = "https://github.com/DioxusLabs/taffy", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "parse"] }
+font-kit = "0.14"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }

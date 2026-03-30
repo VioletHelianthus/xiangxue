@@ -1,8 +1,9 @@
 use std::io::Read;
 use std::path::Path;
 
+use crate::font::FontRegistry;
 use crate::types::Backend;
-use crate::{format_tree, parse_html, resolve_layout};
+use crate::{format_tree, parse_html, resolve_layout, resolve_layout_with_font};
 
 /// Run the CLI with the given backend factory.
 ///
@@ -52,8 +53,15 @@ where
         }
     }
 
-    let (dw, dh) = load_design_resolution();
+    let config = load_config();
+    let (dw, dh) = (config.design_width, config.design_height);
     let backend = make_backend(dw, dh);
+
+    // Create font registry if configured
+    let mut font_registry = config.font_dir.map(|dir| {
+        eprintln!("  font dir: {}", dir);
+        FontRegistry::new(&dir, &config.font_default)
+    });
 
     // No inputs: read from stdin (single file mode)
     if html_files.is_empty() {
@@ -62,7 +70,7 @@ where
             eprintln!("Error reading stdin: {}", e);
             std::process::exit(1);
         });
-        process_single(&buf, emit_mode, &backend);
+        process_single(&buf, emit_mode, &backend, font_registry.as_mut());
         return;
     }
 
@@ -72,7 +80,7 @@ where
             eprintln!("Error reading {}: {}", html_files[0], e);
             std::process::exit(1);
         });
-        process_single(&html, emit_mode, &backend);
+        process_single(&html, emit_mode, &backend, font_registry.as_mut());
         return;
     }
 
@@ -102,7 +110,7 @@ where
         });
 
         let mut tree = parse_html(&html);
-        resolve_layout(&mut tree, dw, dh);
+        do_layout(&mut tree, dw, dh, font_registry.as_mut());
         let output = backend.emit(&tree).unwrap_or_else(|e| {
             eprintln!("Error converting {}: {}", file, e);
             std::process::exit(1);
@@ -118,11 +126,19 @@ where
     }
 }
 
-fn process_single<B: Backend>(html: &str, emit_mode: bool, backend: &B) {
+fn do_layout(tree: &mut crate::types::UiNode, dw: f32, dh: f32, registry: Option<&mut FontRegistry>) {
+    if let Some(r) = registry {
+        resolve_layout_with_font(tree, dw, dh, r);
+    } else {
+        resolve_layout(tree, dw, dh);
+    }
+}
+
+fn process_single<B: Backend>(html: &str, emit_mode: bool, backend: &B, registry: Option<&mut FontRegistry>) {
     let mut tree = parse_html(html);
     if emit_mode {
         let (dw, dh) = backend.design_size();
-        resolve_layout(&mut tree, dw, dh);
+        do_layout(&mut tree, dw, dh, registry);
         match backend.emit(&tree) {
             Ok(bytes) => {
                 use std::io::Write;
@@ -138,17 +154,44 @@ fn process_single<B: Backend>(html: &str, emit_mode: bool, backend: &B) {
     }
 }
 
-/// Parse design resolution from converter.json.
-fn load_design_resolution() -> (f32, f32) {
-    let default = (640.0, 960.0);
+struct CliConfig {
+    design_width: f32,
+    design_height: f32,
+    font_dir: Option<String>,
+    font_default: String,
+}
+
+/// Load configuration from converter.toml (search upward from cwd).
+/// Falls back to converter.json for backward compatibility.
+fn load_config() -> CliConfig {
+    let default = CliConfig {
+        design_width: 640.0,
+        design_height: 960.0,
+        font_dir: None,
+        font_default: String::new(),
+    };
 
     let mut dir = std::env::current_dir().ok();
     while let Some(d) = dir {
-        let config_path = d.join("converter.json");
-        if let Ok(content) = std::fs::read_to_string(&config_path) {
-            if let Some(res) = parse_design_resolution(&content) {
-                eprintln!("  config: {}", config_path.display());
-                return res;
+        // Try converter.toml first
+        let toml_path = d.join("converter.toml");
+        if let Ok(content) = std::fs::read_to_string(&toml_path) {
+            if let Some(cfg) = parse_toml_config(&content) {
+                eprintln!("  config: {}", toml_path.display());
+                return cfg;
+            }
+        }
+        // Fallback to converter.json
+        let json_path = d.join("converter.json");
+        if let Ok(content) = std::fs::read_to_string(&json_path) {
+            if let Some((w, h)) = parse_json_design_resolution(&content) {
+                eprintln!("  config: {}", json_path.display());
+                return CliConfig {
+                    design_width: w,
+                    design_height: h,
+                    font_dir: None,
+                    font_default: String::new(),
+                };
             }
         }
         dir = d.parent().map(|p| p.to_path_buf());
@@ -156,7 +199,36 @@ fn load_design_resolution() -> (f32, f32) {
     default
 }
 
-fn parse_design_resolution(json: &str) -> Option<(f32, f32)> {
+fn parse_toml_config(content: &str) -> Option<CliConfig> {
+    #[derive(serde::Deserialize)]
+    struct Root {
+        design: Option<Design>,
+        font: Option<FontCfg>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Design {
+        width: Option<f32>,
+        height: Option<f32>,
+    }
+    #[derive(serde::Deserialize)]
+    struct FontCfg {
+        dir: Option<String>,
+        default: Option<String>,
+    }
+
+    let root: Root = toml::from_str(content).ok()?;
+    let design = root.design?;
+    let font = root.font.unwrap_or(FontCfg { dir: None, default: None });
+    Some(CliConfig {
+        design_width: design.width.unwrap_or(640.0),
+        design_height: design.height.unwrap_or(960.0),
+        font_dir: font.dir,
+        font_default: font.default.unwrap_or_default(),
+    })
+}
+
+/// Legacy JSON config support.
+fn parse_json_design_resolution(json: &str) -> Option<(f32, f32)> {
     let dr_start = json.find("\"designResolution\"")?;
     let brace_start = json[dr_start..].find('{')? + dr_start;
     let brace_end = json[brace_start..].find('}')? + brace_start;
@@ -172,7 +244,8 @@ fn extract_number(json: &str, key: &str) -> Option<f32> {
     let after_key = &json[key_pos + pattern.len()..];
     let colon = after_key.find(':')?;
     let after_colon = after_key[colon + 1..].trim_start();
-    let num_end = after_colon.find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
+    let num_end = after_colon
+        .find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
         .unwrap_or(after_colon.len());
     after_colon[..num_end].parse().ok()
 }

@@ -1,15 +1,23 @@
 use taffy::prelude::{TaffyAuto, TaffyZero};
 use taffy::{AvailableSpace, NodeId, Size, TaffyTree};
 
-use crate::types::{Dimension, Orientation, UiNode};
+use crate::font::FontRegistry;
+use crate::types::{Dimension, Orientation, UiNode, WidgetKind};
 
-/// Resolve flex layout for the entire UiNode tree using Taffy.
+/// Context attached to text leaf nodes for Taffy intrinsic measurement.
+#[derive(Debug, Clone)]
+struct TextMeasureContext {
+    text: String,
+    font_name: String,
+    font_size: f32,
+}
+
+/// Resolve flex layout for the entire UiNode tree using Taffy (no font measurement).
 ///
 /// Writes `resolved_x/y/width/height` into each node's LayoutProps.
 /// Coordinates are in CSS space (relative to parent, origin top-left, Y-down).
 pub fn resolve_layout(root: &mut UiNode, design_width: f32, design_height: f32) {
-    let mut taffy: TaffyTree = TaffyTree::new();
-
+    let mut taffy: TaffyTree<TextMeasureContext> = TaffyTree::new();
     let root_id = build_taffy_node(&mut taffy, root);
 
     taffy
@@ -25,12 +33,57 @@ pub fn resolve_layout(root: &mut UiNode, design_width: f32, design_height: f32) 
     write_back_layout(&taffy, root_id, root);
 }
 
+/// Resolve flex layout with font-based text measurement.
+///
+/// Text leaf nodes without explicit width will be measured using the provided font.
+pub fn resolve_layout_with_font(
+    root: &mut UiNode,
+    design_width: f32,
+    design_height: f32,
+    registry: &mut FontRegistry,
+) {
+    let mut taffy: TaffyTree<TextMeasureContext> = TaffyTree::new();
+    let root_id = build_taffy_node(&mut taffy, root);
+
+    taffy
+        .compute_layout_with_measure(
+            root_id,
+            Size {
+                width: AvailableSpace::Definite(design_width),
+                height: AvailableSpace::Definite(design_height),
+            },
+            |known_dimensions, _available_space, _node_id, node_context, _style| {
+                if let Some(ctx) = node_context {
+                    let (text_w, text_h) =
+                        registry.measure_text(&ctx.text, &ctx.font_name, ctx.font_size);
+                    Size {
+                        width: known_dimensions.width.unwrap_or(text_w),
+                        height: known_dimensions.height.unwrap_or(text_h),
+                    }
+                } else {
+                    Size::ZERO
+                }
+            },
+        )
+        .expect("Taffy layout computation failed");
+
+    write_back_layout(&taffy, root_id, root);
+}
+
 /// Recursively build a Taffy tree mirroring the UiNode tree.
-fn build_taffy_node(taffy: &mut TaffyTree, node: &UiNode) -> NodeId {
+/// Text leaf nodes get a TextMeasureContext for intrinsic sizing.
+fn build_taffy_node(taffy: &mut TaffyTree<TextMeasureContext>, node: &UiNode) -> NodeId {
     let style = to_taffy_style(&node.layout);
 
     if node.children.is_empty() {
-        taffy.new_leaf(style).expect("Failed to create Taffy leaf")
+        // Attach measurement context to text leaves
+        if let Some(ctx) = text_measure_context(node) {
+            taffy
+                .new_leaf_with_context(style, ctx)
+                .expect("Failed to create Taffy text leaf")
+        } else {
+            taffy.new_leaf(style).expect("Failed to create Taffy leaf")
+        }
     } else {
         let child_ids: Vec<NodeId> = node
             .children
@@ -41,6 +94,34 @@ fn build_taffy_node(taffy: &mut TaffyTree, node: &UiNode) -> NodeId {
             .new_with_children(style, &child_ids)
             .expect("Failed to create Taffy node")
     }
+}
+
+/// Extract text measurement context from a UiNode if it's a text leaf.
+fn text_measure_context(node: &UiNode) -> Option<TextMeasureContext> {
+    if !matches!(node.widget, WidgetKind::Text) {
+        return None;
+    }
+    let text = node
+        .attrs
+        .get("data-text")
+        .or_else(|| node.attrs.get("text"))
+        .filter(|t| !t.is_empty())?;
+
+    // Parse font name and size from data-font (e.g., "MyFont16")
+    let (font_name, data_font_size) = node
+        .attrs
+        .get("data-font")
+        .map(|df| crate::font::parse_font_spec(df))
+        .unwrap_or_default();
+
+    // CSS font-size takes priority, then data-font size, then default
+    let font_size = node.layout.font_size.unwrap_or(data_font_size);
+
+    Some(TextMeasureContext {
+        text: text.clone(),
+        font_name,
+        font_size,
+    })
 }
 
 /// Map LayoutProps to taffy::Style.
@@ -227,7 +308,7 @@ fn opt_px_to_lp(val: Option<f32>) -> taffy::LengthPercentage {
 }
 
 /// Recursively write Taffy layout results back into UiNode.layout.resolved_* fields.
-fn write_back_layout(taffy: &TaffyTree, node_id: NodeId, ui_node: &mut UiNode) {
+fn write_back_layout(taffy: &TaffyTree<TextMeasureContext>, node_id: NodeId, ui_node: &mut UiNode) {
     let layout = taffy.layout(node_id).expect("Failed to get layout");
 
     ui_node.layout.resolved_x = Some(layout.location.x);
@@ -406,5 +487,38 @@ mod tests {
         assert!((a.layout.resolved_width.unwrap() - 200.0).abs() < 0.1);
         assert!((b.layout.resolved_width.unwrap() - 200.0).abs() < 0.1);
         assert!((b.layout.resolved_x.unwrap() - 220.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn padding_offsets_children() {
+        let html = r#"<div data-name="root" style="width:300px;height:200px;padding:10px;display:flex;flex-direction:column">
+            <div data-name="child" style="width:100px;height:50px"></div>
+        </div>"#;
+        let mut tree = parse_html(html);
+        resolve_layout(&mut tree, 300.0, 200.0);
+
+        let child = &tree.children[0];
+        // Child should be offset by padding: x=10, y=10
+        assert!((child.layout.resolved_x.unwrap() - 10.0).abs() < 0.1,
+            "child x: {:?}", child.layout.resolved_x);
+        assert!((child.layout.resolved_y.unwrap() - 10.0).abs() < 0.1,
+            "child y: {:?}", child.layout.resolved_y);
+    }
+
+    #[test]
+    fn inset_zero_stretches_to_parent() {
+        let html = r#"<div data-name="root" style="width:640px;height:480px">
+            <div data-name="bg" style="position:absolute;inset:0"></div>
+        </div>"#;
+        let mut tree = parse_html(html);
+        resolve_layout(&mut tree, 640.0, 480.0);
+
+        let bg = &tree.children[0];
+        assert!((bg.layout.resolved_width.unwrap() - 640.0).abs() < 0.1,
+            "bg width: {:?}", bg.layout.resolved_width);
+        assert!((bg.layout.resolved_height.unwrap() - 480.0).abs() < 0.1,
+            "bg height: {:?}", bg.layout.resolved_height);
+        assert!((bg.layout.resolved_x.unwrap()).abs() < 0.1);
+        assert!((bg.layout.resolved_y.unwrap()).abs() < 0.1);
     }
 }

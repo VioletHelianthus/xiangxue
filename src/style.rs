@@ -104,6 +104,8 @@ enum Decl {
     LineHeight(f32),
     // Flex shorthand
     Flex(f32, f32, Dimension), // grow, shrink, basis
+    // Inset shorthand
+    InsetShorthand(Vec<Dimension>),
 }
 
 fn apply_declaration(props: &mut LayoutProps, decl: Decl) {
@@ -195,6 +197,7 @@ fn apply_declaration(props: &mut LayoutProps, decl: Decl) {
         }
         Decl::ColumnGap(v) => props.column_gap = Some(v),
         Decl::RowGap(v) => props.row_gap = Some(v),
+        Decl::InsetShorthand(vals) => apply_inset_shorthand(props, &vals),
     }
 }
 
@@ -255,6 +258,37 @@ fn apply_box_shorthand_padding(props: &mut LayoutProps, vals: &[f32]) {
             props.padding_right = Some(vals[1]);
             props.padding_bottom = Some(vals[2]);
             props.padding_left = Some(vals[3]);
+        }
+        _ => {}
+    }
+}
+
+fn apply_inset_shorthand(props: &mut LayoutProps, vals: &[Dimension]) {
+    match vals.len() {
+        1 => {
+            let v = vals[0].clone();
+            props.top = Some(v.clone());
+            props.right = Some(v.clone());
+            props.bottom = Some(v.clone());
+            props.left = Some(v);
+        }
+        2 => {
+            props.top = Some(vals[0].clone());
+            props.bottom = Some(vals[0].clone());
+            props.right = Some(vals[1].clone());
+            props.left = Some(vals[1].clone());
+        }
+        3 => {
+            props.top = Some(vals[0].clone());
+            props.right = Some(vals[1].clone());
+            props.left = Some(vals[1].clone());
+            props.bottom = Some(vals[2].clone());
+        }
+        4 => {
+            props.top = Some(vals[0].clone());
+            props.right = Some(vals[1].clone());
+            props.bottom = Some(vals[2].clone());
+            props.left = Some(vals[3].clone());
         }
         _ => {}
     }
@@ -338,6 +372,8 @@ impl<'i> DeclarationParser<'i> for LayoutDeclParser {
             "line-height" => parse_line_height(input),
             // Flex shorthand: flex: <grow> [<shrink>] [<basis>]
             "flex" => parse_flex_shorthand(input),
+            // Inset shorthand: inset: <top> [<right>] [<bottom>] [<left>]
+            "inset" => parse_dimension_shorthand(input).map(Decl::InsetShorthand),
             _ => Err(input.new_custom_error(())),
         }
     }
@@ -429,6 +465,24 @@ fn parse_px_shorthand<'i, 't>(
             break;
         }
         match parse_px_value(input) {
+            Ok(v) => values.push(v),
+            Err(_) => break,
+        }
+    }
+    Ok(values)
+}
+
+/// Parse a CSS dimension shorthand (1–4 values), used for `inset`.
+fn parse_dimension_shorthand<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<Vec<Dimension>, ParseError<'i, ()>> {
+    let mut values = Vec::new();
+    values.push(parse_dimension(input)?);
+    for _ in 0..3 {
+        if input.is_exhausted() {
+            break;
+        }
+        match parse_dimension(input) {
             Ok(v) => values.push(v),
             Err(_) => break,
         }
