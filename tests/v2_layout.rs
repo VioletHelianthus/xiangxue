@@ -1,31 +1,29 @@
-//! M4 verification: layout phase via Taffy.
+//! Layout phase via Taffy.
 //!
 //! Goes through the full pipeline (parse → cascade → flush → solve) and
 //! checks `box_pixel` results match expected positions.
 
+use xiangxue::{BoxModel, NodeKind};
 
-use xiangxue as v2;
-use xiangxue::{BoxModel, NodeData, NodeKind};
-
-fn pipeline(html: &str, css: &[&str]) -> v2::Document {
-    let mut doc = v2::parse::html::parse(html).unwrap();
-    v2::cascade::run(&mut doc, &[], css).unwrap();
-    v2::layout::flush_styles(&mut doc).unwrap();
-    let opts = v2::LayoutOptions {
-        viewport: v2::Size::new(800.0, 600.0),
+fn pipeline(html: &str, css: &[&str]) -> xiangxue::Document {
+    let mut doc = xiangxue::parse::html::parse(html).unwrap();
+    xiangxue::cascade::run(&mut doc, &[], css).unwrap();
+    xiangxue::layout::flush_styles(&mut doc).unwrap();
+    let opts = xiangxue::LayoutOptions {
+        viewport: xiangxue::Size::new(800.0, 600.0),
         ..Default::default()
     };
-    v2::layout::solve(
+    xiangxue::layout::solve(
         &mut doc,
         &opts,
-        &v2::NoOpFontProvider,
+        &xiangxue::NoOpFontProvider,
     )
     .unwrap();
     doc
 }
 
-fn find_by_id(doc: &v2::Document, id_attr: &str) -> v2::NodeId {
-    fn walk(doc: &v2::Document, id: v2::NodeId, want: &str, out: &mut Option<v2::NodeId>) {
+fn find_by_id(doc: &xiangxue::Document, id_attr: &str) -> xiangxue::NodeId {
+    fn walk(doc: &xiangxue::Document, id: xiangxue::NodeId, want: &str, out: &mut Option<xiangxue::NodeId>) {
         if let Some(n) = doc.get(id) {
             if let NodeKind::Element { attrs, .. } = &n.kind {
                 if attrs.get("id").map(|s| s.as_str()) == Some(want) && out.is_none() {
@@ -42,7 +40,7 @@ fn find_by_id(doc: &v2::Document, id_attr: &str) -> v2::NodeId {
     out.unwrap_or_else(|| panic!("no #{id_attr}"))
 }
 
-fn pixel<'a>(doc: &'a v2::Document, id: v2::NodeId) -> &'a BoxModel {
+fn pixel<'a>(doc: &'a xiangxue::Document, id: xiangxue::NodeId) -> &'a BoxModel {
     &doc.get(id).unwrap().box_pixel
 }
 
@@ -236,11 +234,11 @@ fn external_css_drives_layout() {
 
 #[test]
 fn one_shot_layout_entry_works() {
-    let opts = v2::LayoutOptions {
-        viewport: v2::Size::new(400.0, 300.0),
+    let opts = xiangxue::LayoutOptions {
+        viewport: xiangxue::Size::new(400.0, 300.0),
         ..Default::default()
     };
-    let tree = v2::layout(
+    let tree = xiangxue::layout(
         r#"<div id="x" style="width: 200px; height: 100px"></div>"#,
         &[],
         &opts,

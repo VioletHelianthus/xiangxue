@@ -4,16 +4,14 @@
 //! [`ComputedStyle`] into a `taffy::Style` cached on the node.
 //!
 //! Phase 4 (`solve`): runs `taffy::compute_root_layout` then
-//! `taffy::round_layout`, capturing both the unrounded (subpixel) and final
-//! (pixel-aligned) box rectangles into NodeData. This split mirrors Blitz's
-//! `unrounded_layout` / `final_layout` (blitz-extraction §2 — important for
-//! game UI to avoid 1-pixel error accumulation across nested containers).
+//! `taffy::round_layout`, capturing both the unrounded (subpixel) and
+//! final (pixel-aligned) box rectangles into NodeData. Subpixel
+//! coordinates are kept so 1-pixel rounding errors do not accumulate
+//! across nested containers.
 //!
 //! Document directly implements `taffy::TraversePartialTree` /
-//! `LayoutPartialTree` / `RoundTree` and friends. We do **not** maintain a
-//! second `taffy::TaffyTree` — our arena IS the Taffy tree
-//! (blitz-extraction §4, the key pattern that eliminates v1 layout.rs's
-//! complexity).
+//! `LayoutPartialTree` / `RoundTree` and friends; we do **not** maintain a
+//! second `taffy::TaffyTree`. The arena IS the Taffy tree.
 
 mod style_to_taffy;
 mod text_measure;
@@ -51,7 +49,7 @@ pub fn flush_styles(doc: &mut Document) -> Result<(), LayoutError> {
                     hidden.display = taffy::Display::None;
                     Some(hidden)
                 } else {
-                    None // Real text: keep default style for M5 measurement.
+                    None // Real text: keep default style so the leaf measure callback runs.
                 }
             }
             Some(NodeKind::Comment(_)) => {

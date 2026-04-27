@@ -1,18 +1,18 @@
-//! M2 verification: html5ever → Document arena round-tripping.
+//! html5ever → Document arena round-tripping.
 //!
-//! The fixtures intentionally include `data-mh-*` attributes — v2 parser
+//! The fixtures intentionally include `data-x-*` attributes — the parser
 //! treats them as plain `attrs` entries (no DSL interpretation), proving the
-//! redesign §3.2 #2 (no `data-mh-*` in core) holds.
+//! design intent of treating custom data-* attributes as opaque holds.
 
 
-use xiangxue as v2;
+
 use xiangxue::{NodeData, NodeKind};
 
-fn root(doc: &v2::Document) -> &NodeData {
+fn root(doc: &xiangxue::Document) -> &NodeData {
     doc.root()
 }
 
-fn first_child<'a>(doc: &'a v2::Document, node: &NodeData) -> &'a NodeData {
+fn first_child<'a>(doc: &'a xiangxue::Document, node: &NodeData) -> &'a NodeData {
     doc.get(node.children[0]).expect("missing child")
 }
 
@@ -38,7 +38,7 @@ fn debug_kind(k: &NodeKind) -> &'static str {
     }
 }
 
-fn collect_text(doc: &v2::Document, node: &NodeData) -> String {
+fn collect_text(doc: &xiangxue::Document, node: &NodeData) -> String {
     let mut out = String::new();
     if let NodeKind::Text(s) = &node.kind {
         out.push_str(s);
@@ -53,7 +53,7 @@ fn collect_text(doc: &v2::Document, node: &NodeData) -> String {
 
 #[test]
 fn root_is_html_element() {
-    let doc = v2::parse::html::parse("<html><head></head><body></body></html>").unwrap();
+    let doc = xiangxue::parse::html::parse("<html><head></head><body></body></html>").unwrap();
     let r = root(&doc);
     assert_eq!(element_tag(r), "html");
     assert!(r.parent.is_none());
@@ -71,7 +71,7 @@ fn root_is_html_element() {
 fn missing_html_synthesized_by_html5ever() {
     // html5ever auto-builds <html><head></head><body>...</body></html>
     // when the input is bare body content.
-    let doc = v2::parse::html::parse("<div>hi</div>").unwrap();
+    let doc = xiangxue::parse::html::parse("<div>hi</div>").unwrap();
     let r = root(&doc);
     assert_eq!(element_tag(r), "html");
     let body = doc.get(r.children[1]).expect("body present");
@@ -83,7 +83,7 @@ fn missing_html_synthesized_by_html5ever() {
 
 #[test]
 fn text_node_is_separate_variant() {
-    let doc = v2::parse::html::parse("<p>hello</p>").unwrap();
+    let doc = xiangxue::parse::html::parse("<p>hello</p>").unwrap();
     let body = doc.get(doc.root().children[1]).unwrap();
     let p = first_child(&doc, body);
     assert_eq!(element_tag(p), "p");
@@ -94,7 +94,7 @@ fn text_node_is_separate_variant() {
 
 #[test]
 fn comment_preserved() {
-    let doc = v2::parse::html::parse("<body><!-- note --><div></div></body>").unwrap();
+    let doc = xiangxue::parse::html::parse("<body><!-- note --><div></div></body>").unwrap();
     let body = doc.get(doc.root().children[1]).unwrap();
     let comment = doc.get(body.children[0]).unwrap();
     assert!(matches!(comment.kind, NodeKind::Comment(ref s) if s.contains("note")));
@@ -104,22 +104,22 @@ fn comment_preserved() {
 
 #[test]
 fn attrs_preserved_in_btreemap_order() {
-    let doc = v2::parse::html::parse(
-        r#"<div id="x" class="y" data-mh-widget="Button" data-mh-name="okBtn"></div>"#,
+    let doc = xiangxue::parse::html::parse(
+        r#"<div id="x" class="y" data-x-widget="Button" data-x-name="okBtn"></div>"#,
     )
     .unwrap();
     let body = doc.get(doc.root().children[1]).unwrap();
     let div = first_child(&doc, body);
-    // All data-* go into attrs verbatim — core does not interpret data-mh-*.
+    // All data-* go into attrs verbatim — core does not interpret data-x-*.
     assert_eq!(element_attr(div, "id"), Some("x"));
     assert_eq!(element_attr(div, "class"), Some("y"));
-    assert_eq!(element_attr(div, "data-mh-widget"), Some("Button"));
-    assert_eq!(element_attr(div, "data-mh-name"), Some("okBtn"));
+    assert_eq!(element_attr(div, "data-x-widget"), Some("Button"));
+    assert_eq!(element_attr(div, "data-x-name"), Some("okBtn"));
 }
 
 #[test]
 fn parent_pointers_consistent() {
-    let doc = v2::parse::html::parse("<body><div><span><b></b></span></div></body>").unwrap();
+    let doc = xiangxue::parse::html::parse("<body><div><span><b></b></span></div></body>").unwrap();
     for (id, node) in doc.nodes_iter() {
         if let Some(parent_id) = node.parent {
             let p = doc.get(parent_id).expect("parent must exist");
@@ -137,15 +137,15 @@ fn parent_pointers_consistent() {
 #[test]
 fn nested_structure_with_mixed_content() {
     let html = r#"
-        <div data-mh-name="root">
-            <div data-mh-widget="Button">Click me</div>
+        <div data-x-name="root">
+            <div data-x-widget="Button">Click me</div>
             <span>Plain text</span>
         </div>
     "#;
-    let doc = v2::parse::html::parse(html).unwrap();
+    let doc = xiangxue::parse::html::parse(html).unwrap();
     let body = doc.get(doc.root().children[1]).unwrap();
     let outer_div = first_child(&doc, body);
-    assert_eq!(element_attr(outer_div, "data-mh-name"), Some("root"));
+    assert_eq!(element_attr(outer_div, "data-x-name"), Some("root"));
 
     // The button div + the span (whitespace text nodes between, depending on parser)
     let elements: Vec<_> = outer_div
@@ -158,7 +158,7 @@ fn nested_structure_with_mixed_content() {
         .collect();
     assert_eq!(elements.len(), 2);
     assert_eq!(element_tag(elements[0]), "div");
-    assert_eq!(element_attr(elements[0], "data-mh-widget"), Some("Button"));
+    assert_eq!(element_attr(elements[0], "data-x-widget"), Some("Button"));
     assert_eq!(element_tag(elements[1]), "span");
 }
 
@@ -173,14 +173,14 @@ fn deep_tree_doesnt_overflow_arena() {
     for _ in 0..200 {
         html.push_str("</div>");
     }
-    let doc = v2::parse::html::parse(&html).unwrap();
+    let doc = xiangxue::parse::html::parse(&html).unwrap();
     // body + 200 nested divs + 1 text leaf = 202 elements + 1 text + html + head
     assert!(doc.len() >= 200);
 }
 
 #[test]
 fn whitespace_between_elements_becomes_text_nodes() {
-    let doc = v2::parse::html::parse("<body><div></div>\n  <span></span></body>").unwrap();
+    let doc = xiangxue::parse::html::parse("<body><div></div>\n  <span></span></body>").unwrap();
     let body = doc.get(doc.root().children[1]).unwrap();
     // div, whitespace text, span
     assert_eq!(body.children.len(), 3);
@@ -197,7 +197,7 @@ trait DocPeek {
     fn nodes_iter(&self) -> Box<dyn Iterator<Item = (xiangxue::NodeId, &NodeData)> + '_>;
 }
 
-impl DocPeek for v2::Document {
+impl DocPeek for xiangxue::Document {
     fn nodes_iter(&self) -> Box<dyn Iterator<Item = (xiangxue::NodeId, &NodeData)> + '_> {
         // We can't access `nodes` field (pub(crate)) — walk via root + BFS.
         let mut visited = vec![self.root];

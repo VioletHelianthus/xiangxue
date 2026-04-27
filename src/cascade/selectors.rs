@@ -1,5 +1,4 @@
-//! Selector compilation + matching for the v2 CSS subset (see
-//! `docs/xiangxue-css-subset.md` §1).
+//! Selector compilation + matching for the supported CSS subset.
 //!
 //! We do **not** implement `parcel_selectors::tree::Element` for our
 //! `NodeData` — that trait surface is large and demands SelectorImpl plumbing.
@@ -216,7 +215,7 @@ impl StructuralPseudo {
 }
 
 /// Compile a lightningcss selector to our IR. Rejects features outside
-/// `xiangxue-css-subset.md` §1.
+/// the supported subset.
 pub fn compile<'i>(selector: &Selector<'i>) -> Result<MatchSelector, LayoutError> {
     let specificity = selector.specificity();
     let mut compounds: Vec<Compound> = vec![Compound::default()];

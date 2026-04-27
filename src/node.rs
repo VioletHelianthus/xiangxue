@@ -5,9 +5,9 @@ use crate::style::ComputedStyle;
 
 pub type NodeId = usize;
 
-/// HTML5 node kinds preserved by the parser (CSS subset §2 & redesign §5.3).
-/// `Element` carries `tag` (always the HTML original tag, never widget-mapped),
-/// `attrs` (all `data-*` and others raw — core does not interpret), and
+/// HTML5 node kinds preserved by the parser. `Element` carries `tag`
+/// (always the HTML original tag), `attrs` (all `data-*` and others raw —
+/// the engine does not interpret application-defined attributes), and
 /// `computed` filled by cascade.
 #[derive(Debug, Clone)]
 pub enum NodeKind {
@@ -36,10 +36,10 @@ impl NodeKind {
 
 /// A node in the Document arena.
 ///
-/// `box_subpixel` and `box_pixel` mirror Blitz's `unrounded_layout` /
-/// `final_layout` split (blitz-extraction §2): subpixel-precise vs
-/// pixel-aligned. Game UI rounds to integer pixels but subpixel is kept
-/// to avoid 1px error accumulation across nested containers.
+/// `box_subpixel` and `box_pixel` form a subpixel-precise / pixel-aligned
+/// split. Pixel-aligned coordinates are convenient for renderers, while
+/// the subpixel form is kept so 1px rounding errors do not accumulate
+/// across nested containers.
 pub struct NodeData {
     pub id: NodeId,
     pub parent: Option<NodeId>,
@@ -49,9 +49,8 @@ pub struct NodeData {
     pub box_pixel: BoxModel,
     pub taffy_cache: taffy::Cache,
     pub taffy_style: taffy::Style,
-    // Reserved for ⏸ pseudo-element support. Do not implement in v2 first
-    // release; presence of these fields prevents NodeData layout churn when
-    // ::before / ::after is later promoted to ✅ (CSS subset §1).
+    // Reserved for future pseudo-element support (`::before` / `::after`).
+    // Slot kept here so adding them later does not perturb NodeData layout.
     // pub before: Option<NodeId>,
     // pub after: Option<NodeId>,
 }

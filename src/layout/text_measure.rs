@@ -69,11 +69,11 @@ fn parent_font_for_text(doc: &Document, text_id: NodeId) -> Font {
 
 /// Run the FontProvider with the given font query and return text dimensions.
 ///
-/// Honours Taffy's known/available constraints by clamping the natural width
-/// when the available space pins it. Multi-line wrapping isn't implemented in
-/// M5 — the FontProvider is asked once for the natural width/height. Callers
-/// needing wrap behaviour set explicit `width` on the parent Element so Taffy
-/// constrains the leaf via known dimensions.
+/// Honours Taffy's known/available constraints by clamping the natural
+/// width when the available space pins it. Multi-line wrapping isn't
+/// implemented yet — the FontProvider is asked once for the natural
+/// width/height. Callers needing wrap behaviour set explicit `width` on
+/// the parent Element so Taffy constrains the leaf via known dimensions.
 fn measure_text(
     fonts: &dyn crate::font::FontProvider,
     text: &str,

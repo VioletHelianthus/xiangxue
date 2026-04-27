@@ -1,8 +1,8 @@
 //! Inherit inheritable properties from parent ComputedStyle to child.
 //!
-//! W3C lists inheritable CSS properties — we only handle the ones in our
-//! subset (`docs/xiangxue-css-subset.md`). This is run as a separate pass
-//! after the cascade pass writes initial values into each Element node.
+//! Handles the inheritable properties present in the supported CSS subset.
+//! Run as a separate pass after the cascade writes initial values into
+//! each Element node.
 
 use crate::style::ComputedStyle;
 
@@ -10,11 +10,11 @@ use crate::style::ComputedStyle;
 /// adopts the parent's value. Behaviour mirrors CSS: applies only to
 /// inheritable properties, and only when the child didn't explicitly set them.
 ///
-/// In v2's first cut we use a coarse "if value == default, take parent's"
+/// First cut uses a coarse "if value == default, take parent's"
 /// heuristic. This is correct for most CSS uses (font-size: 16px is the
 /// default; once it changes, the change propagates). A full implementation
-/// would track "explicit" vs "default" via Option<T> — leaving as a future
-/// refinement noted in `docs/xiangxue-css-subset.md` §13.
+/// would track "explicit" vs "default" via `Option<T>` — left as a future
+/// refinement.
 pub fn inherit_from(child: &mut ComputedStyle, parent: &ComputedStyle) {
     let initial = ComputedStyle::initial();
 

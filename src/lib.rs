@@ -2,13 +2,8 @@
 //!
 //! Inputs: HTML + CSS strings, viewport, optional `FontProvider`.
 //! Output: a fully laid-out `Document` tree where every element has its
-//! computed style and resolved box geometry, ready for a backend to walk
-//! and emit whatever target format it cares about.
-//!
-//! Design docs:
-//! - `docs/xiangxue-core-redesign.md` (entry / decisions)
-//! - `docs/xiangxue-css-subset.md` (CSS scope)
-//! - `docs/xiangxue-blitz-extraction.md` (Blitz design borrow list)
+//! computed style and resolved box geometry, ready for a downstream
+//! consumer to walk and emit whatever target format it cares about.
 
 pub mod box_model;
 pub mod document;

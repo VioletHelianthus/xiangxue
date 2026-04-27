@@ -1,31 +1,31 @@
-//! M3 verification: CSS cascade pipeline.
+//! CSS cascade pipeline tests.
 //!
-//! Covers `docs/xiangxue-css-subset.md` §1 (selectors), §13 (cascade order
-//! + inheritance), and the pipeline integration with HTML parse from M2.
+//! Covers selectors, cascade order, inheritance, and the pipeline
+//! integration with HTML parse.
 
 
-use xiangxue as v2;
+
 use xiangxue::{Color, ComputedStyle, Display, Length, NodeKind, Position};
 
-fn build(html: &str, css: &[&str]) -> v2::Document {
-    let mut doc = v2::parse::html::parse(html).expect("html parses");
-    v2::cascade::run(&mut doc, &[], css).expect("cascade succeeds");
+fn build(html: &str, css: &[&str]) -> xiangxue::Document {
+    let mut doc = xiangxue::parse::html::parse(html).expect("html parses");
+    xiangxue::cascade::run(&mut doc, &[], css).expect("cascade succeeds");
     doc
 }
 
-fn build_one_rule(html: &str, css_text: &str) -> v2::Document {
+fn build_one_rule(html: &str, css_text: &str) -> xiangxue::Document {
     build(html, &[css_text])
 }
 
-fn computed_of<'a>(doc: &'a v2::Document, id: v2::NodeId) -> &'a ComputedStyle {
+fn computed_of<'a>(doc: &'a xiangxue::Document, id: xiangxue::NodeId) -> &'a ComputedStyle {
     match &doc.get(id).expect("node").kind {
         NodeKind::Element { computed, .. } => computed,
         _ => panic!("not an element"),
     }
 }
 
-fn find_by_tag(doc: &v2::Document, tag: &str) -> v2::NodeId {
-    fn walk(doc: &v2::Document, id: v2::NodeId, tag: &str, out: &mut Option<v2::NodeId>) {
+fn find_by_tag(doc: &xiangxue::Document, tag: &str) -> xiangxue::NodeId {
+    fn walk(doc: &xiangxue::Document, id: xiangxue::NodeId, tag: &str, out: &mut Option<xiangxue::NodeId>) {
         if let Some(n) = doc.get(id) {
             if let NodeKind::Element { tag: t, .. } = &n.kind {
                 if t == tag && out.is_none() {
@@ -42,8 +42,8 @@ fn find_by_tag(doc: &v2::Document, tag: &str) -> v2::NodeId {
     out.unwrap_or_else(|| panic!("no <{tag}> in document"))
 }
 
-fn find_by_id(doc: &v2::Document, id_attr: &str) -> v2::NodeId {
-    fn walk(doc: &v2::Document, id: v2::NodeId, want: &str, out: &mut Option<v2::NodeId>) {
+fn find_by_id(doc: &xiangxue::Document, id_attr: &str) -> xiangxue::NodeId {
+    fn walk(doc: &xiangxue::Document, id: xiangxue::NodeId, want: &str, out: &mut Option<xiangxue::NodeId>) {
         if let Some(n) = doc.get(id) {
             if let NodeKind::Element { attrs, .. } = &n.kind {
                 if attrs.get("id").map(|s| s.as_str()) == Some(want) && out.is_none() {
@@ -105,8 +105,8 @@ fn id_selector_matches() {
 #[test]
 fn attr_exists_selector() {
     let doc = build_one_rule(
-        r#"<div data-mh-widget="Button"></div><div></div>"#,
-        "[data-mh-widget] { opacity: 0.5 }",
+        r#"<div data-x-widget="Button"></div><div></div>"#,
+        "[data-x-widget] { opacity: 0.5 }",
     );
     let body = doc.get(doc.root().children[1]).unwrap();
     let with_attr = doc.get(body.children[0]).unwrap();
@@ -301,42 +301,42 @@ fn font_shorthand_via_individuals() {
     );
     let s = computed_of(&doc, find_by_id(&doc, "x"));
     assert!((s.font.size - 18.0).abs() < 0.01);
-    assert_eq!(s.font.weight, v2::FontWeight::Bold);
+    assert_eq!(s.font.weight, xiangxue::FontWeight::Bold);
 }
 
 // ── Unsupported CSS surfaces as error ──
 
 #[test]
 fn media_query_returns_unsupported() {
-    let mut doc = v2::parse::html::parse("<div></div>").unwrap();
-    let result = v2::cascade::run(
+    let mut doc = xiangxue::parse::html::parse("<div></div>").unwrap();
+    let result = xiangxue::cascade::run(
         &mut doc,
         &[],
         &["@media (min-width: 600px) { div { color: red } }"],
     );
     assert!(matches!(
         result,
-        Err(v2::LayoutError::UnsupportedCss { .. })
+        Err(xiangxue::LayoutError::UnsupportedCss { .. })
     ));
 }
 
 #[test]
 fn hover_pseudo_returns_unsupported() {
-    let mut doc = v2::parse::html::parse("<div></div>").unwrap();
-    let result = v2::cascade::run(&mut doc, &[], &["div:hover { color: red }"]);
+    let mut doc = xiangxue::parse::html::parse("<div></div>").unwrap();
+    let result = xiangxue::cascade::run(&mut doc, &[], &["div:hover { color: red }"]);
     assert!(matches!(
         result,
-        Err(v2::LayoutError::UnsupportedCss { .. })
+        Err(xiangxue::LayoutError::UnsupportedCss { .. })
     ));
 }
 
 #[test]
 fn not_selector_returns_unsupported() {
-    let mut doc = v2::parse::html::parse("<div></div>").unwrap();
-    let result = v2::cascade::run(&mut doc, &[], &["div:not(.foo) { color: red }"]);
+    let mut doc = xiangxue::parse::html::parse("<div></div>").unwrap();
+    let result = xiangxue::cascade::run(&mut doc, &[], &["div:not(.foo) { color: red }"]);
     assert!(matches!(
         result,
-        Err(v2::LayoutError::UnsupportedCss { .. })
+        Err(xiangxue::LayoutError::UnsupportedCss { .. })
     ));
 }
 
@@ -352,20 +352,20 @@ fn embedded_style_tag_applies() {
     assert_eq!(s.color, Color::Rgba(255, 0, 0, 255));
 }
 
-// ── data-mh-* attrs reach attrs map without interpretation ──
+// ── data-x-* attrs reach attrs map without interpretation ──
 
 #[test]
 fn data_mh_attrs_in_attrs_not_interpreted() {
     let doc = build(
-        r#"<div data-mh-widget="Button" data-mh-name="okBtn"></div>"#,
+        r#"<div data-x-widget="Button" data-x-name="okBtn"></div>"#,
         &[],
     );
     let body = doc.get(doc.root().children[1]).unwrap();
     let div = doc.get(body.children[0]).unwrap();
     if let NodeKind::Element { tag, attrs, .. } = &div.kind {
-        // Tag remains the HTML original — never mapped to "MhButton".
+        // Tag remains the HTML original — never mapped to the original tag.
         assert_eq!(tag, "div");
-        assert_eq!(attrs.get("data-mh-widget").map(|s| s.as_str()), Some("Button"));
-        assert_eq!(attrs.get("data-mh-name").map(|s| s.as_str()), Some("okBtn"));
+        assert_eq!(attrs.get("data-x-widget").map(|s| s.as_str()), Some("Button"));
+        assert_eq!(attrs.get("data-x-name").map(|s| s.as_str()), Some("okBtn"));
     }
 }

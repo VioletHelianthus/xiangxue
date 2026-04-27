@@ -13,9 +13,8 @@ use crate::node::{NodeData, NodeId};
 /// `Document.root`.
 pub(crate) const DOCUMENT_SENTINEL: NodeId = usize::MAX;
 
-/// HTML+CSS arena. Use a `Box<Slab<...>>` so node addresses stay stable across
-/// inserts (matches Blitz `BaseDocument.nodes: Box<Slab<Node>>` invariant —
-/// blitz-extraction §1).
+/// HTML+CSS arena. Uses `Box<Slab<...>>` so node addresses stay stable
+/// across inserts.
 pub struct Document {
     /// The root element NodeId. Valid only when `nodes` is non-empty.
     pub root: NodeId,

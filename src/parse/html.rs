@@ -1,14 +1,13 @@
 //! HTML5 parsing into a Document arena.
 //!
-//! Wraps html5ever's `TreeSink` to write into our arena. The `ParseOpts`
-//! config (scripting_enabled=false, drop_doctype=true, no quirks) mirrors
-//! `blitz/packages/blitz-html/src/html_sink.rs:88-97` —
-//! see blitz-extraction §5.
+//! Wraps html5ever's `TreeSink` to write into our arena. `ParseOpts` runs
+//! with `scripting_enabled = false`, `drop_doctype = true`, and
+//! `QuirksMode::NoQuirks`.
 //!
-//! Differences from Blitz:
-//! - Single-shot parse only; no DocumentMutator / no incremental updates.
-//! - We accept Element / Text / Comment node kinds. ProcessingInstruction is
-//!   downgraded to Comment. Template content is treated as a regular Element.
+//! Notes:
+//! - Single-shot parse only; no incremental updates / mutator API.
+//! - We accept Element / Text / Comment node kinds. ProcessingInstruction
+//!   is downgraded to Comment. Template content is treated as a regular Element.
 //! - The conceptual "document" node uses sentinel
 //!   [`DOCUMENT_SENTINEL`](crate::document::DOCUMENT_SENTINEL); after parse
 //!   the first `<html>` child becomes `Document.root`.

@@ -1,4 +1,4 @@
-//! M5 verification: FontProvider trait + text node measurement.
+//! FontProvider trait + text node measurement.
 //!
 //! Uses a deterministic mock FontProvider that returns dimensions purely as a
 //! function of input, so layout assertions are stable.
@@ -6,10 +6,7 @@
 
 use std::sync::Mutex;
 
-use xiangxue as v2;
-use xiangxue::{
-    self, FontProvider, FontQuery, FontStyle, FontWeight, NodeKind, TextMetrics,
-};
+use xiangxue::{FontProvider, FontQuery, FontStyle, FontWeight, NodeKind, TextMetrics};
 
 /// Deterministic mock: width = chars * size * 0.6, height = size * 1.2.
 /// Records every measure call so tests can assert what got measured.
@@ -62,20 +59,20 @@ impl FontProvider for MockFontProvider {
     }
 }
 
-fn run(html: &str, css: &[&str], fp: &dyn FontProvider) -> v2::Document {
-    let mut doc = v2::parse::html::parse(html).unwrap();
-    v2::cascade::run(&mut doc, &[], css).unwrap();
-    v2::layout::flush_styles(&mut doc).unwrap();
-    let opts = v2::LayoutOptions {
-        viewport: v2::Size::new(800.0, 600.0),
+fn run(html: &str, css: &[&str], fp: &dyn FontProvider) -> xiangxue::Document {
+    let mut doc = xiangxue::parse::html::parse(html).unwrap();
+    xiangxue::cascade::run(&mut doc, &[], css).unwrap();
+    xiangxue::layout::flush_styles(&mut doc).unwrap();
+    let opts = xiangxue::LayoutOptions {
+        viewport: xiangxue::Size::new(800.0, 600.0),
         ..Default::default()
     };
-    v2::layout::solve(&mut doc, &opts, fp).unwrap();
+    xiangxue::layout::solve(&mut doc, &opts, fp).unwrap();
     doc
 }
 
-fn find_by_id(doc: &v2::Document, id_attr: &str) -> v2::NodeId {
-    fn walk(doc: &v2::Document, id: v2::NodeId, want: &str, out: &mut Option<v2::NodeId>) {
+fn find_by_id(doc: &xiangxue::Document, id_attr: &str) -> xiangxue::NodeId {
+    fn walk(doc: &xiangxue::Document, id: xiangxue::NodeId, want: &str, out: &mut Option<xiangxue::NodeId>) {
         if let Some(n) = doc.get(id) {
             if let NodeKind::Element { attrs, .. } = &n.kind {
                 if attrs.get("id").map(|s| s.as_str()) == Some(want) && out.is_none() {
@@ -180,11 +177,11 @@ fn parent_size_grows_to_fit_text() {
 fn noop_font_provider_used_by_one_shot_layout() {
     // The xiangxue::layout(...) one-shot uses NoOpFontProvider internally
     // (text.chars * size * 0.6, size * 1.2 — same shape as our mock).
-    let opts = v2::LayoutOptions {
-        viewport: v2::Size::new(400.0, 300.0),
+    let opts = xiangxue::LayoutOptions {
+        viewport: xiangxue::Size::new(400.0, 300.0),
         ..Default::default()
     };
-    let tree = v2::layout(
+    let tree = xiangxue::layout(
         r#"<div style="position: absolute; display: flex; font-size: 20px"><span id="s">xy</span></div>"#,
         &[],
         &opts,

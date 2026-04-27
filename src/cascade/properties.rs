@@ -1,11 +1,8 @@
 //! Map lightningcss `Property` values to our [`ComputedStyle`].
 //!
-//! Scope is bounded by `docs/xiangxue-css-subset.md`. Properties in the ✅ list
-//! are mapped here; ⏸/❌ properties return `Err(LayoutError::UnsupportedCss)`
-//! at the call site (cascade::mod.rs decides whether to bail or skip).
-//!
-//! M3 covers the most-used core properties. M4 adds the layout-flow
-//! properties (flex-* / grid-* internals) alongside style_to_taffy.
+//! Scope is bounded by the supported CSS subset. Supported properties are
+//! mapped here; unsupported ones return `Err(LayoutError::UnsupportedCss)`
+//! at the call site (`cascade::mod.rs` decides whether to bail or skip).
 
 use lightningcss::properties::Property;
 use lightningcss::properties::display as lc_display;

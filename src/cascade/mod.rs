@@ -7,9 +7,9 @@
 //! W3C cascade order (origin & importance → specificity → source order),
 //! followed by inheritance for inheritable properties.
 //!
-//! Scope is bounded by `docs/xiangxue-css-subset.md` (see §1 selectors,
-//! §2-§13 properties). Anything outside the subset returns
-//! `LayoutError::UnsupportedCss` instead of being silently ignored.
+//! The supported CSS subset is intentionally narrow. Properties outside
+//! that subset return `LayoutError::UnsupportedCss` rather than being
+//! silently ignored.
 
 mod inherit;
 mod properties;
