@@ -54,9 +54,12 @@ pub trait FontProvider {
     fn has_face(&self, family: &str, weight: FontWeight, style: FontStyle) -> bool;
 }
 
-/// Default placeholder used by `xiangxue::layout()` one-shot entry.
-/// Approximates a monospace metric: width = chars * size * 0.6, height = size * 1.2.
-/// Backend code should provide a real `FontProvider` via `Engine`.
+/// Stub `FontProvider` returning rough estimates: width = chars × size × 0.6,
+/// height = size × 1.2. Used by [`crate::layout`] when no real provider is
+/// supplied — useful when text widths aren't asserted (layout-only golden
+/// tests, simple fixtures), but **not suitable for production text layout**.
+/// Production callers should pass a real `FontProvider` through
+/// [`crate::Engine::new`].
 pub struct NoOpFontProvider;
 
 impl FontProvider for NoOpFontProvider {

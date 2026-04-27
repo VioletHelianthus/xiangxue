@@ -7,17 +7,24 @@
 use taffy::style::{
     AlignContent as TafAlignContent, AlignItems as TafAlignItems, AlignSelf as TafAlignSelf,
     Dimension, Display as TafDisplay, FlexDirection as TafFlexDirection,
-    FlexWrap as TafFlexWrap, JustifyContent as TafJustifyContent, LengthPercentage,
-    LengthPercentageAuto, Overflow as TafOverflow, Position as TafPosition, Style,
+    FlexWrap as TafFlexWrap, GridAutoFlow as TafGridAutoFlow,
+    GridPlacement as TafGridPlacement, GridTemplateArea as TafGridTemplateArea,
+    GridTemplateComponent as TafGridTemplateComponent,
+    GridTemplateRepetition as TafGridTemplateRepetition, JustifyContent as TafJustifyContent,
+    LengthPercentage, LengthPercentageAuto, MaxTrackSizingFunction as TafMaxTrack,
+    MinTrackSizingFunction as TafMinTrack, Overflow as TafOverflow, Position as TafPosition,
+    RepetitionCount as TafRepetitionCount, Style, TrackSizingFunction as TafTrackSizing,
 };
+use taffy::geometry::Line as TafLine;
 use taffy::Point as TafPoint;
 use taffy::Rect as TafRect;
 use taffy::Size as TafSize;
 
 use crate::box_model::Sides;
 use crate::style::{
-    AlignItems, ComputedStyle, Display, FlexDirection, FlexProps, FlexWrap, JustifyContent,
-    Length, Overflow, Position,
+    AlignItems, ComputedStyle, Display, FlexDirection, FlexProps, FlexWrap, GridAutoFlow,
+    GridLine as XGridLine, GridProps, GridRepeatCount, GridTemplateAreas, GridTemplateComponent,
+    GridTrack, GridTrackSize, JustifyContent, Length, Overflow, Position,
 };
 
 /// Convert a single `ComputedStyle` into a `taffy::Style`. This is a pure
@@ -68,7 +75,162 @@ pub fn convert(cs: &ComputedStyle) -> Style {
         height: length_to_lp(cs.gap_y),
     };
 
+    if let Some(grid) = &cs.grid {
+        apply_grid_container(&mut s, grid);
+    }
+    apply_grid_placement(&mut s, &cs.grid_column, &cs.grid_row);
+
     s
+}
+
+fn apply_grid_container(s: &mut Style, grid: &GridProps) {
+    s.grid_template_columns = grid
+        .template_columns
+        .iter()
+        .map(map_template_component)
+        .collect();
+    s.grid_template_rows = grid
+        .template_rows
+        .iter()
+        .map(map_template_component)
+        .collect();
+    s.grid_auto_columns = grid
+        .auto_columns
+        .iter()
+        .map(map_track_sizing)
+        .collect();
+    s.grid_auto_rows = grid
+        .auto_rows
+        .iter()
+        .map(map_track_sizing)
+        .collect();
+    s.grid_auto_flow = match grid.auto_flow {
+        GridAutoFlow::Row => TafGridAutoFlow::Row,
+        GridAutoFlow::Column => TafGridAutoFlow::Column,
+        GridAutoFlow::RowDense => TafGridAutoFlow::RowDense,
+        GridAutoFlow::ColumnDense => TafGridAutoFlow::ColumnDense,
+    };
+    if let Some(areas) = &grid.template_areas {
+        s.grid_template_areas = expand_template_areas(areas);
+    }
+}
+
+fn apply_grid_placement(
+    s: &mut Style,
+    grid_column: &(XGridLine, XGridLine),
+    grid_row: &(XGridLine, XGridLine),
+) {
+    s.grid_column = TafLine {
+        start: map_grid_placement(&grid_column.0, true),
+        end: map_grid_placement(&grid_column.1, false),
+    };
+    s.grid_row = TafLine {
+        start: map_grid_placement(&grid_row.0, true),
+        end: map_grid_placement(&grid_row.1, false),
+    };
+}
+
+/// Map a single named-area placement to taffy. CSS `grid-area: header` expands
+/// to start = `header-start`, end = `header-end` lines per the W3C grid spec
+/// (taffy's template-areas implementation generates implicit named lines with
+/// these suffixes).
+fn map_grid_placement(line: &XGridLine, is_start: bool) -> TafGridPlacement<String> {
+    match line {
+        XGridLine::Auto => TafGridPlacement::Auto,
+        XGridLine::Index(i) => TafGridPlacement::Line((*i).into()),
+        XGridLine::Named(name) => {
+            let suffix = if is_start { "-start" } else { "-end" };
+            TafGridPlacement::NamedLine(format!("{name}{suffix}"), 1)
+        }
+        XGridLine::Span(n) => TafGridPlacement::Span(*n),
+    }
+}
+
+fn map_template_component(c: &GridTemplateComponent) -> TafGridTemplateComponent<String> {
+    match c {
+        GridTemplateComponent::Single(t) => TafGridTemplateComponent::Single(map_track_sizing(t)),
+        GridTemplateComponent::Repeat { count, tracks } => {
+            TafGridTemplateComponent::Repeat(TafGridTemplateRepetition {
+                count: match count {
+                    GridRepeatCount::Count(n) => TafRepetitionCount::Count(*n),
+                    GridRepeatCount::AutoFill => TafRepetitionCount::AutoFill,
+                    GridRepeatCount::AutoFit => TafRepetitionCount::AutoFit,
+                },
+                tracks: tracks.iter().map(map_track_sizing).collect(),
+                line_names: Vec::new(),
+            })
+        }
+    }
+}
+
+fn map_track_sizing(t: &GridTrack) -> TafTrackSizing {
+    TafTrackSizing {
+        min: map_min_track(&t.min),
+        max: map_max_track(&t.max),
+    }
+}
+
+fn map_min_track(s: &GridTrackSize) -> TafMinTrack {
+    match s {
+        GridTrackSize::Px(v) => TafMinTrack::length(*v),
+        GridTrackSize::Percent(p) => TafMinTrack::percent(p / 100.0),
+        // Fr is invalid in min position; degrade to Auto (CSS spec).
+        GridTrackSize::Fr(_) => TafMinTrack::auto(),
+        GridTrackSize::Auto => TafMinTrack::auto(),
+        GridTrackSize::MinContent => TafMinTrack::min_content(),
+        GridTrackSize::MaxContent => TafMinTrack::max_content(),
+    }
+}
+
+fn map_max_track(s: &GridTrackSize) -> TafMaxTrack {
+    match s {
+        GridTrackSize::Px(v) => TafMaxTrack::length(*v),
+        GridTrackSize::Percent(p) => TafMaxTrack::percent(p / 100.0),
+        GridTrackSize::Fr(v) => TafMaxTrack::fr(*v),
+        GridTrackSize::Auto => TafMaxTrack::auto(),
+        GridTrackSize::MinContent => TafMaxTrack::min_content(),
+        GridTrackSize::MaxContent => TafMaxTrack::max_content(),
+    }
+}
+
+/// Expand `grid-template-areas` into taffy's `GridTemplateArea` per name. For
+/// each named cell, find its bounding box (row/column min..max+1) across the
+/// flat row-major area list.
+fn expand_template_areas(areas: &GridTemplateAreas) -> Vec<TafGridTemplateArea<String>> {
+    let columns = areas.columns.max(1) as usize;
+    let row_count = (areas.areas.len() + columns - 1) / columns;
+    let mut bounds: std::collections::BTreeMap<String, (u16, u16, u16, u16)> =
+        std::collections::BTreeMap::new();
+    for r in 0..row_count {
+        for c in 0..columns {
+            let idx = r * columns + c;
+            let cell = match areas.areas.get(idx).and_then(|n| n.as_ref()) {
+                Some(n) => n,
+                None => continue,
+            };
+            let r_u = r as u16;
+            let c_u = c as u16;
+            bounds
+                .entry(cell.clone())
+                .and_modify(|(rs, re, cs, ce)| {
+                    *rs = (*rs).min(r_u);
+                    *re = (*re).max(r_u);
+                    *cs = (*cs).min(c_u);
+                    *ce = (*ce).max(c_u);
+                })
+                .or_insert((r_u, r_u, c_u, c_u));
+        }
+    }
+    bounds
+        .into_iter()
+        .map(|(name, (rs, re, cs, ce))| TafGridTemplateArea {
+            name,
+            row_start: rs + 1,
+            row_end: re + 2,
+            column_start: cs + 1,
+            column_end: ce + 2,
+        })
+        .collect()
 }
 
 fn apply_flex(s: &mut Style, flex: &FlexProps) {

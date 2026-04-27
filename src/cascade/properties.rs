@@ -18,8 +18,10 @@ use lightningcss::properties::size::{MaxSize as LcMaxSize, Size as LcSize};
 use crate::box_model::Sides;
 use crate::error::LayoutError;
 use crate::style::{
-    AlignItems, Color, ComputedStyle, Display, FlexDirection, FlexProps, FlexWrap, JustifyContent,
-    Length, Overflow, Position, TextAlign, Visibility,
+    AlignItems, Color, ComputedStyle, Display, FlexDirection, FlexProps, FlexWrap, GridAutoFlow,
+    GridLine as XGridLine, GridProps, GridRepeatCount, GridTemplateAreas, GridTemplateComponent,
+    GridTrack, GridTrackSize, JustifyContent, Length, Overflow, Position, TextAlign, TransformOp,
+    Visibility,
 };
 
 /// Apply one CSS property to `style`. Returns:
@@ -310,21 +312,78 @@ pub fn apply_property(style: &mut ComputedStyle, prop: &Property<'_>) -> Result<
             Ok(true)
         }
 
-        // Grid: recognised but deferred (CSS subset §6 — Taffy bridging
-        // pending). Silently accept so subset tests pass without surfacing
-        // UnsupportedCss for these.
-        Property::GridTemplateColumns(_)
-        | Property::GridTemplateRows(_)
-        | Property::GridAutoFlow(_)
-        | Property::GridAutoColumns(_)
-        | Property::GridAutoRows(_)
-        | Property::GridArea(_)
-        | Property::GridColumn(_)
-        | Property::GridRow(_)
-        | Property::GridColumnStart(_)
-        | Property::GridColumnEnd(_)
-        | Property::GridRowStart(_)
-        | Property::GridRowEnd(_) => Ok(true),
+        // Grid container properties (CSS subset §3.6).
+        Property::GridTemplateColumns(value) => {
+            let grid = style.grid.get_or_insert_with(GridProps::default);
+            grid.template_columns = map_track_sizing(value)?;
+            Ok(true)
+        }
+        Property::GridTemplateRows(value) => {
+            let grid = style.grid.get_or_insert_with(GridProps::default);
+            grid.template_rows = map_track_sizing(value)?;
+            Ok(true)
+        }
+        Property::GridAutoColumns(list) => {
+            let grid = style.grid.get_or_insert_with(GridProps::default);
+            grid.auto_columns = map_track_size_list(list)?;
+            Ok(true)
+        }
+        Property::GridAutoRows(list) => {
+            let grid = style.grid.get_or_insert_with(GridProps::default);
+            grid.auto_rows = map_track_size_list(list)?;
+            Ok(true)
+        }
+        Property::GridAutoFlow(flow) => {
+            let grid = style.grid.get_or_insert_with(GridProps::default);
+            grid.auto_flow = map_grid_auto_flow(flow);
+            Ok(true)
+        }
+        Property::GridTemplateAreas(areas) => {
+            let grid = style.grid.get_or_insert_with(GridProps::default);
+            grid.template_areas = map_grid_template_areas(areas);
+            Ok(true)
+        }
+
+        // Grid item placement (per-element).
+        Property::GridColumnStart(line) => {
+            style.grid_column.0 = map_grid_line(line)?;
+            Ok(true)
+        }
+        Property::GridColumnEnd(line) => {
+            style.grid_column.1 = map_grid_line(line)?;
+            Ok(true)
+        }
+        Property::GridRowStart(line) => {
+            style.grid_row.0 = map_grid_line(line)?;
+            Ok(true)
+        }
+        Property::GridRowEnd(line) => {
+            style.grid_row.1 = map_grid_line(line)?;
+            Ok(true)
+        }
+        Property::GridColumn(shorthand) => {
+            style.grid_column.0 = map_grid_line(&shorthand.start)?;
+            style.grid_column.1 = map_grid_line(&shorthand.end)?;
+            Ok(true)
+        }
+        Property::GridRow(shorthand) => {
+            style.grid_row.0 = map_grid_line(&shorthand.start)?;
+            style.grid_row.1 = map_grid_line(&shorthand.end)?;
+            Ok(true)
+        }
+        Property::GridArea(shorthand) => {
+            style.grid_row.0 = map_grid_line(&shorthand.row_start)?;
+            style.grid_column.0 = map_grid_line(&shorthand.column_start)?;
+            style.grid_row.1 = map_grid_line(&shorthand.row_end)?;
+            style.grid_column.1 = map_grid_line(&shorthand.column_end)?;
+            Ok(true)
+        }
+
+        // Transform (CSS subset §3.9).
+        Property::Transform(list, _) => {
+            style.transforms = map_transform_list(list)?;
+            Ok(true)
+        }
 
         // Out-of-scope but harmless (silently ignored).
         _ => Ok(false),
@@ -592,5 +651,211 @@ fn format_font_family(f: &lc_font::FontFamily) -> String {
                 .unwrap_or_default();
             s.trim_matches('"').to_string()
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Grid mappers (CSS subset §3.6)
+
+fn map_track_sizing(
+    value: &lightningcss::properties::grid::TrackSizing<'_>,
+) -> Result<Vec<GridTemplateComponent>, LayoutError> {
+    use lightningcss::properties::grid::{TrackListItem, TrackSizing};
+    match value {
+        TrackSizing::None => Ok(Vec::new()),
+        TrackSizing::TrackList(list) => {
+            let mut out = Vec::with_capacity(list.items.len());
+            for item in &list.items {
+                match item {
+                    TrackListItem::TrackSize(size) => {
+                        out.push(GridTemplateComponent::Single(map_track_size(size)?));
+                    }
+                    TrackListItem::TrackRepeat(rep) => {
+                        let mut tracks = Vec::with_capacity(rep.track_sizes.len());
+                        for s in &rep.track_sizes {
+                            tracks.push(map_track_size(s)?);
+                        }
+                        out.push(GridTemplateComponent::Repeat {
+                            count: map_repeat_count(&rep.count),
+                            tracks,
+                        });
+                    }
+                }
+            }
+            Ok(out)
+        }
+    }
+}
+
+fn map_track_size_list(
+    list: &lightningcss::properties::grid::TrackSizeList,
+) -> Result<Vec<GridTrack>, LayoutError> {
+    let mut out = Vec::with_capacity(list.0.len());
+    for s in list.0.iter() {
+        out.push(map_track_size(s)?);
+    }
+    Ok(out)
+}
+
+fn map_track_size(
+    size: &lightningcss::properties::grid::TrackSize,
+) -> Result<GridTrack, LayoutError> {
+    use lightningcss::properties::grid::TrackSize;
+    match size {
+        TrackSize::TrackBreadth(b) => Ok(GridTrack::from_breadth(map_track_breadth(b)?)),
+        TrackSize::MinMax { min, max } => Ok(GridTrack {
+            min: map_track_breadth(min)?,
+            max: map_track_breadth(max)?,
+        }),
+        TrackSize::FitContent(_) => Err(LayoutError::UnsupportedCss {
+            feature: "grid track size: fit-content()".into(),
+            location: None,
+        }),
+    }
+}
+
+fn map_track_breadth(
+    breadth: &lightningcss::properties::grid::TrackBreadth,
+) -> Result<GridTrackSize, LayoutError> {
+    use lightningcss::properties::grid::TrackBreadth;
+    match breadth {
+        TrackBreadth::Length(lp) => Ok(match lp_to_length(lp) {
+            Length::Px(v) => GridTrackSize::Px(v),
+            Length::Percent(p) => GridTrackSize::Percent(p),
+            Length::Auto => GridTrackSize::Auto,
+        }),
+        TrackBreadth::Flex(v) => Ok(GridTrackSize::Fr(*v as f32)),
+        TrackBreadth::MinContent => Ok(GridTrackSize::MinContent),
+        TrackBreadth::MaxContent => Ok(GridTrackSize::MaxContent),
+        TrackBreadth::Auto => Ok(GridTrackSize::Auto),
+    }
+}
+
+fn map_repeat_count(
+    count: &lightningcss::properties::grid::RepeatCount,
+) -> GridRepeatCount {
+    use lightningcss::properties::grid::RepeatCount;
+    match count {
+        RepeatCount::Number(n) => GridRepeatCount::Count((*n).max(0) as u16),
+        RepeatCount::AutoFill => GridRepeatCount::AutoFill,
+        RepeatCount::AutoFit => GridRepeatCount::AutoFit,
+    }
+}
+
+fn map_grid_auto_flow(
+    flow: &lightningcss::properties::grid::GridAutoFlow,
+) -> GridAutoFlow {
+    use lightningcss::properties::grid::GridAutoFlow as LcFlow;
+    let column = flow.contains(LcFlow::Column);
+    let dense = flow.contains(LcFlow::Dense);
+    match (column, dense) {
+        (false, false) => GridAutoFlow::Row,
+        (false, true) => GridAutoFlow::RowDense,
+        (true, false) => GridAutoFlow::Column,
+        (true, true) => GridAutoFlow::ColumnDense,
+    }
+}
+
+fn map_grid_template_areas(
+    areas: &lightningcss::properties::grid::GridTemplateAreas,
+) -> Option<GridTemplateAreas> {
+    use lightningcss::properties::grid::GridTemplateAreas as LcAreas;
+    match areas {
+        LcAreas::None => None,
+        LcAreas::Areas { columns, areas } => Some(GridTemplateAreas {
+            columns: *columns,
+            areas: areas.clone(),
+        }),
+    }
+}
+
+fn map_grid_line(
+    line: &lightningcss::properties::grid::GridLine<'_>,
+) -> Result<XGridLine, LayoutError> {
+    use lightningcss::properties::grid::GridLine as LcGridLine;
+    match line {
+        LcGridLine::Auto => Ok(XGridLine::Auto),
+        LcGridLine::Area { name } => Ok(XGridLine::Named(name.0.as_ref().to_string())),
+        LcGridLine::Line { index, name: _ } => Ok(XGridLine::Index(*index as i16)),
+        LcGridLine::Span { index, name: None } => {
+            Ok(XGridLine::Span((*index).max(1) as u16))
+        }
+        LcGridLine::Span { name: Some(_), .. } => Err(LayoutError::UnsupportedCss {
+            feature: "grid line: span N <name>".into(),
+            location: None,
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Transform mappers (CSS subset §3.9)
+
+fn map_transform_list(
+    list: &lightningcss::properties::transform::TransformList,
+) -> Result<Vec<TransformOp>, LayoutError> {
+    let mut out = Vec::with_capacity(list.0.len());
+    for t in &list.0 {
+        out.push(map_transform_fn(t)?);
+    }
+    Ok(out)
+}
+
+fn map_transform_fn(
+    t: &lightningcss::properties::transform::Transform,
+) -> Result<TransformOp, LayoutError> {
+    use lightningcss::properties::transform::Transform as T;
+    match t {
+        T::Translate(x, y) => Ok(TransformOp::Translate {
+            x: lp_to_length(x),
+            y: lp_to_length(y),
+        }),
+        T::TranslateX(x) => Ok(TransformOp::Translate {
+            x: lp_to_length(x),
+            y: Length::Px(0.0),
+        }),
+        T::TranslateY(y) => Ok(TransformOp::Translate {
+            x: Length::Px(0.0),
+            y: lp_to_length(y),
+        }),
+        T::Rotate(a) | T::RotateZ(a) => Ok(TransformOp::Rotate(a.to_degrees())),
+        T::Scale(x, y) => Ok(TransformOp::Scale(
+            number_or_percent(x),
+            number_or_percent(y),
+        )),
+        T::ScaleX(x) => Ok(TransformOp::Scale(number_or_percent(x), 1.0)),
+        T::ScaleY(y) => Ok(TransformOp::Scale(1.0, number_or_percent(y))),
+        // 3D / matrix / skew / perspective: outside CSS subset §3.9.
+        T::TranslateZ(_) | T::Translate3d(..) => Err(LayoutError::UnsupportedCss {
+            feature: "transform: 3D translate".into(),
+            location: None,
+        }),
+        T::ScaleZ(_) | T::Scale3d(..) => Err(LayoutError::UnsupportedCss {
+            feature: "transform: 3D scale".into(),
+            location: None,
+        }),
+        T::RotateX(_) | T::RotateY(_) | T::Rotate3d(..) => Err(LayoutError::UnsupportedCss {
+            feature: "transform: 3D rotate".into(),
+            location: None,
+        }),
+        T::Skew(..) | T::SkewX(_) | T::SkewY(_) => Err(LayoutError::UnsupportedCss {
+            feature: "transform: skew()".into(),
+            location: None,
+        }),
+        T::Matrix(_) | T::Matrix3d(_) => Err(LayoutError::UnsupportedCss {
+            feature: "transform: matrix()".into(),
+            location: None,
+        }),
+        T::Perspective(_) => Err(LayoutError::UnsupportedCss {
+            feature: "transform: perspective()".into(),
+            location: None,
+        }),
+    }
+}
+
+fn number_or_percent(v: &lightningcss::values::percentage::NumberOrPercentage) -> f32 {
+    use lightningcss::values::percentage::NumberOrPercentage as N;
+    match v {
+        N::Number(n) => *n as f32,
+        N::Percentage(p) => p.0 as f32,
     }
 }

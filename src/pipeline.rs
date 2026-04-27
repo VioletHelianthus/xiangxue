@@ -20,8 +20,14 @@ impl Default for LayoutOptions {
     }
 }
 
-/// One-shot entry. Internally uses [`NoOpFontProvider`]; backends needing
-/// real font metrics should construct an [`Engine`] with their own provider.
+/// One-shot layout entrypoint.
+///
+/// **Text-measurement warning**: this entrypoint uses [`NoOpFontProvider`],
+/// which approximates text width as `chars * font_size * 0.6` rather than
+/// performing real font metrics. Use [`Engine::new`] with a real
+/// [`FontProvider`] for production text layout; the measurements returned
+/// here are only suitable for layout-only golden tests, fixtures where text
+/// widths are not asserted, or quick experiments.
 pub fn layout(
     html: &str,
     css: &[&str],

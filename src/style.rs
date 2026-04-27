@@ -208,12 +208,96 @@ impl Default for FlexProps {
     }
 }
 
-/// Grid props are deferred to a future milestone. Subset §6 lists them as ✅
-/// but Taffy's grid model needs deeper bridging — keeping the slot reserved
-/// avoids ComputedStyle reshape later.
-#[derive(Debug, Clone, Default)]
+/// A single grid track size. Mirrors CSS `<track-breadth>` plus the auto/
+/// content keywords. `Px`/`Percent` carry their value verbatim; `Fr` is
+/// flex-factor; `Auto`/`MinContent`/`MaxContent` are intrinsic keywords.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GridTrackSize {
+    Px(f32),
+    Percent(f32),
+    Fr(f32),
+    Auto,
+    MinContent,
+    MaxContent,
+}
+
+impl Default for GridTrackSize {
+    fn default() -> Self {
+        GridTrackSize::Auto
+    }
+}
+
+/// A grid track entry. A bare track size like `100px` is `min == max`; the
+/// `minmax(a, b)` function distinguishes the two.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct GridTrack {
+    pub min: GridTrackSize,
+    pub max: GridTrackSize,
+}
+
+impl GridTrack {
+    pub fn from_breadth(breadth: GridTrackSize) -> Self {
+        Self { min: breadth.clone(), max: breadth }
+    }
+}
+
+/// One slot in `grid-template-columns` / `-rows`: either a single track or a
+/// `repeat(count, ...)` group.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GridTemplateComponent {
+    Single(GridTrack),
+    Repeat { count: GridRepeatCount, tracks: Vec<GridTrack> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridRepeatCount {
+    Count(u16),
+    AutoFill,
+    AutoFit,
+}
+
+/// Named-area grid. `columns * row_count == areas.len()`. `None` slots
+/// represent the `.` token (unnamed cell).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct GridTemplateAreas {
+    pub columns: u32,
+    pub areas: Vec<Option<String>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GridAutoFlow {
+    #[default]
+    Row,
+    Column,
+    RowDense,
+    ColumnDense,
+}
+
+/// Grid placement endpoint (`grid-row-start`, `grid-column-end`, etc.).
+/// `Named` is for named-area references; `Span` is `span N`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GridLine {
+    Auto,
+    Index(i16),
+    Named(String),
+    Span(u16),
+}
+
+impl Default for GridLine {
+    fn default() -> Self {
+        GridLine::Auto
+    }
+}
+
+/// Grid container properties (CSS subset §3.6).
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct GridProps {
-    pub _reserved: (),
+    pub template_columns: Vec<GridTemplateComponent>,
+    pub template_rows: Vec<GridTemplateComponent>,
+    pub template_areas: Option<GridTemplateAreas>,
+    pub auto_columns: Vec<GridTrack>,
+    pub auto_rows: Vec<GridTrack>,
+    pub auto_flow: GridAutoFlow,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -257,6 +341,10 @@ pub struct ComputedStyle {
     // Layout-mode properties (CSS subset §5/§6)
     pub flex: Option<FlexProps>,
     pub grid: Option<GridProps>,
+
+    // Grid item placement (per-element, not container; CSS subset §3.6)
+    pub grid_column: (GridLine, GridLine),
+    pub grid_row: (GridLine, GridLine),
 }
 
 impl ComputedStyle {

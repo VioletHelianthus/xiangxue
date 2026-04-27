@@ -29,6 +29,7 @@ pub use node::{NodeData, NodeId, NodeKind};
 pub use pipeline::{Engine, LayoutOptions, StylesheetId, layout};
 pub use style::{
     AlignContent, AlignItems, AlignSelf, Background, BorderStyle, BorderStyleKind, Color,
-    ComputedStyle, Display, FlexDirection, FlexProps, FlexWrap, Font, GridProps, JustifyContent,
-    Length, Overflow, Position, TextAlign, TransformOp, Visibility,
+    ComputedStyle, Display, FlexDirection, FlexProps, FlexWrap, Font, GridAutoFlow, GridLine,
+    GridProps, GridRepeatCount, GridTemplateAreas, GridTemplateComponent, GridTrack,
+    GridTrackSize, JustifyContent, Length, Overflow, Position, TextAlign, TransformOp, Visibility,
 };
