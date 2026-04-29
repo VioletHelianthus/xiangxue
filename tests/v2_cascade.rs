@@ -258,6 +258,48 @@ fn display_flex() {
 }
 
 #[test]
+fn display_inline_block_blockifies() {
+    // CSS Display §9.7: inline-block has no inline-flow support here, degrades to block.
+    let doc = build_one_rule(
+        r#"<div id="x"></div>"#,
+        "#x { position: absolute; display: inline-block; width: 64px; height: 64px }",
+    );
+    let s = computed_of(&doc, find_by_id(&doc, "x"));
+    assert_eq!(s.display, Display::Block);
+}
+
+#[test]
+fn display_inline_blockifies() {
+    let doc = build_one_rule(
+        r#"<div id="x"></div>"#,
+        "#x { display: inline }",
+    );
+    let s = computed_of(&doc, find_by_id(&doc, "x"));
+    assert_eq!(s.display, Display::Block);
+}
+
+#[test]
+fn display_inline_flex_becomes_flex() {
+    let doc = build_one_rule(
+        r#"<div id="x"></div>"#,
+        "#x { display: inline-flex }",
+    );
+    let s = computed_of(&doc, find_by_id(&doc, "x"));
+    assert_eq!(s.display, Display::Flex);
+}
+
+#[test]
+fn display_inline_grid_becomes_grid() {
+    use xiangxue::Display as D;
+    let doc = build_one_rule(
+        r#"<div id="x"></div>"#,
+        "#x { display: inline-grid }",
+    );
+    let s = computed_of(&doc, find_by_id(&doc, "x"));
+    assert_eq!(s.display, D::Grid);
+}
+
+#[test]
 fn position_absolute() {
     let doc = build_one_rule(
         r#"<div id="x"></div>"#,

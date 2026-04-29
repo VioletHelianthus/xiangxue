@@ -403,21 +403,14 @@ fn map_display(d: &lc_display::Display) -> Result<Display, LayoutError> {
         LD::Keyword(DK::Contents) => Ok(Display::Block), // contents ⏸; degrade
         LD::Keyword(_) => Ok(Display::Block),            // table-* etc.
         LD::Pair(p) => match (&p.outside, &p.inside) {
+            // Blockify inline-* per CSS Display §9.7 (absolutely positioned / floated boxes).
+            // The engine has no inline flow, so inline / inline-block degrade to block,
+            // and inline-flex / inline-grid degrade to flex / grid respectively.
             (_, DI::Flex(_)) => Ok(Display::Flex),
             (_, DI::Grid) => Ok(Display::Grid),
             (DO::Block, DI::Flow) | (DO::Block, DI::FlowRoot) => Ok(Display::Block),
-            (DO::Inline, DI::Flow) => Err(LayoutError::UnsupportedCss {
-                feature: "display: inline".into(),
-                location: None,
-            }),
-            (DO::Inline, DI::FlowRoot) => Err(LayoutError::UnsupportedCss {
-                feature: "display: inline-block".into(),
-                location: None,
-            }),
-            (DO::RunIn, _) => Err(LayoutError::UnsupportedCss {
-                feature: "display: run-in".into(),
-                location: None,
-            }),
+            (DO::Inline, DI::Flow) | (DO::Inline, DI::FlowRoot) => Ok(Display::Block),
+            (DO::RunIn, _) => Ok(Display::Block),
             _ => Ok(Display::Block),
         },
     }
